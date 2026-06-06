@@ -1,0 +1,181 @@
+appId: com.kangfenmao.CherryStudio
+productName: Cherry Studio
+electronLanguages:
+  - zh-CN
+  - zh-TW
+  - en-US
+  - ja # macOS/linux/win
+  - ru # macOS/linux/win
+  - zh_CN # for macOS
+  - zh_TW # for macOS
+  - en # for macOS
+  - de
+directories:
+  buildResources: build
+
+protocols:
+  - name: Cherry Studio
+    schemes:
+      - cherrystudio
+files:
+  - "**/*"
+  - "!**/{.vscode,.yarn,.yarn-lock,.github,.cursorrules,.prettierrc}"
+  - "!electron.vite.config.{js,ts,mjs,cjs}}"
+  - "!.*"
+  - "!components.json"
+  - "!**/{.eslintignore,.eslintrc.js,.eslintrc.json,.eslintcache,root.eslint.config.js,eslint.config.js,.eslintrc.cjs,.prettierignore,.prettierrc.yaml,eslint.config.mjs,dev-app-update.yml,CHANGELOG.md,README.md,biome.jsonc}"
+  - "!**/{.env,.env.*,.npmrc,pnpm-lock.yaml}"
+  - "!**/{tsconfig.json,tsconfig.tsbuildinfo,tsconfig.node.json,tsconfig.web.json}"
+  - "!**/{.editorconfig,.jekyll-metadata}"
+  - "!src"
+  - "!config"
+  - "!patches"
+  - "!app-upgrade-config.json"
+  - "!**/node_modules/**/*.cpp"
+  - "!**/node_modules/node-addon-api/**"
+  - "!**/node_modules/prebuild-install/**"
+  - "!scripts"
+  - "!local"
+  - "!docs"
+  - "!packages"
+  - "!.swc"
+  - "!.bin"
+  - "!._*"
+  - "!*.log"
+  - "!stats.html"
+  - "!*.md"
+  - "!**/*.{iml,o,hprof,orig,pyc,pyo,rbc,swp,csproj,sln,xproj}"
+  - "!**/*.{map,ts,tsx,jsx,less,scss,sass,css.d.ts,d.cts,d.mts,md,markdown,yaml,yml}"
+  - "!**/{test,tests,__tests__,powered-test,coverage}/**"
+  - "!**/{example,examples}/**"
+  - "!**/*.{spec,test}.{js,jsx,ts,tsx}"
+  - "!**/*.min.*.map"
+  - "!**/*.d.ts"
+  - "!**/dist/es6/**"
+  - "!**/dist/demo/**"
+  - "!**/amd/**"
+  - "!**/{.DS_Store,Thumbs.db,thumbs.db,__pycache__}"
+  - "!**/{LICENSE,license,LICENSE.*,*.LICENSE.txt,NOTICE.txt,README.md,readme.md,CHANGELOG.md}"
+  - "!node_modules/rollup-plugin-visualizer"
+  - "!node_modules/js-tiktoken"
+  - "!node_modules/@tavily/core/node_modules/js-tiktoken"
+  - "!node_modules/pdf-parse/lib/pdf.js/{v1.9.426,v1.10.88,v2.0.550}"
+  - "!node_modules/mammoth/{mammoth.browser.js,mammoth.browser.min.js}"
+  - "!node_modules/selection-hook/prebuilds/**/*" # we rebuild .node, don't use prebuilds
+  - "!node_modules/selection-hook/node_modules" # we don't need what in the node_modules dir
+  - "!node_modules/selection-hook/src" # we don't need source files
+  - "!node_modules/tesseract.js-core/{tesseract-core.js,tesseract-core.wasm,tesseract-core.wasm.js}" # we don't need source files
+  - "!node_modules/tesseract.js-core/{tesseract-core-lstm.js,tesseract-core-lstm.wasm,tesseract-core-lstm.wasm.js}" # we don't need source files
+  - "!node_modules/tesseract.js-core/{tesseract-core-simd-lstm.js,tesseract-core-simd-lstm.wasm,tesseract-core-simd-lstm.wasm.js}" # we don't need source files
+  - "!**/*.{h,iobj,ipdb,tlog,recipe,vcxproj,vcxproj.filters,Makefile,*.Makefile}" # filter .node build files
+  - "resources/**/*" # include all files in resources, and unpack them from asar for runtime access
+asarUnpack:
+  - out/proxy/**
+  - resources/**
+  - "**/*.{metal,exp,lib}"
+  - "node_modules/@img/sharp-*/**"
+
+win:
+  executableName: Cherry Studio
+  artifactName: ${productName}-${version}-${arch}-setup.${ext}
+  target:
+    - target: nsis
+    - target: portable
+  signtoolOptions:
+    sign: scripts/win-sign.js
+  verifyUpdateCodeSignature: false
+nsis:
+  artifactName: ${productName}-${version}-${arch}-setup.${ext}
+  shortcutName: ${productName}
+  uninstallDisplayName: ${productName}
+  createDesktopShortcut: always
+  allowToChangeInstallationDirectory: true
+  oneClick: false
+  include: build/nsis-installer.nsh
+  buildUniversalInstaller: false
+  differentialPackage: false
+portable:
+  artifactName: ${productName}-${version}-${arch}-portable.${ext}
+  buildUniversalInstaller: false
+mac:
+  entitlementsInherit: build/entitlements.mac.plist
+  notarize: false
+  artifactName: ${productName}-${version}-${arch}.${ext}
+  extendInfo:
+    - NSCameraUsageDescription: Application requests access to the device's camera.
+    - NSMicrophoneUsageDescription: Application requests access to the device's microphone.
+    - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
+    - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
+  target:
+    - target: dmg
+    - target: zip
+dmg:
+  writeUpdateInfo: false
+linux:
+  artifactName: ${productName}-${version}-${arch}.${ext}
+  executableName: CherryStudio
+  target:
+    - target: AppImage
+    - target: deb
+    - target: rpm
+  maintainer: electronjs.org
+  category: Utility
+  desktop:
+    entry:
+      Name: Cherry Studio
+      StartupWMClass: CherryStudio
+  mimeTypes:
+    - x-scheme-handler/cherrystudio
+rpm:
+  # Workaround for electron build issue on rpm package:
+  # https://github.com/electron/forge/issues/3594
+  fpm: ["--rpm-rpmbuild-define=_build_id_links none"]
+publish:
+  provider: generic
+  url: https://releases.cherry-ai.com
+electronDownload:
+  mirror: https://npmmirror.com/mirrors/electron/
+beforePack: scripts/before-pack.js
+afterPack: scripts/after-pack.js
+afterSign: scripts/notarize.js
+artifactBuildCompleted: scripts/artifact-build-completed.js
+releaseInfo:
+  releaseNotes: |
+    <!--LANG:en-->
+    Cherry Studio 1.9.6 - Bug Fixes
+
+    🐛 Bug Fixes
+    - [AI] Fixed crash when chat model's stored provider no longer exists
+    - [AI] Fixed streaming requests aborted after 30 minutes during active data transfer (affected models with extended thinking)
+    - [Agents] Fixed agent session creation failures when provider settings change
+    - [Agents] Fixed deepseek-r1 models incorrectly showing function_calling label causing errors in Agent mode
+    - [Agents] Use task name instead of agent name for cron task sessions
+    - [MCP] Fixed approval card not auto-expanding to show Run/Cancel buttons
+    - [MCP] Clean up OAuth tokens when deleting servers
+    - [Code Tools] Fixed Codex CLI launch failure when using OpenAI or other reserved providers
+    - [Claude Code] Fixed launch failures caused by auth conflicts with provider environment variables
+    - [Image] Fixed gpt-image-2 multi-turn editing crash
+    - [Knowledge] Fixed HTTP/HTTPS/FTP URLs being stripped from Markdown documents
+    - [OpenMinerU] Fixed preprocessing ENOENT errors due to ZIP structure change
+    - [Qiniu] Fixed PDF upload regression for GPT-5.4 models
+    - [Settings] Minor alignment fix for provider model list actions
+
+    <!--LANG:zh-CN-->
+    Cherry Studio 1.9.6 - 错误修复
+
+    🐛 问题修复
+    - [AI] 修复聊天模型的存储提供商不存在时导致的崩溃
+    - [AI] 修复活跃数据传输期间流式请求在 30 分钟后被中断的问题（影响具有扩展思考的模型）
+    - [智能体] 修复提供商设置更改时智能体会话创建失败的问题
+    - [智能体] 修复 deepseek-r1 模型错误显示 function_calling 标签导致智能体模式出错
+    - [智能体] 定时任务会话现在使用任务名称而非智能体名称
+    - [MCP] 修复批准卡片未自动展开以显示运行/取消按钮的问题
+    - [MCP] 删除服务器时清理 OAuth 令牌
+    - [代码工具] 修复使用 OpenAI 或其他保留提供商时 Codex CLI 启动失败的问题
+    - [Claude Code] 修复提供商环境变量导致身份验证冲突从而无法启动的问题
+    - [图像] 修复 gpt-image-2 多轮编辑崩溃问题
+    - [知识库] 修复 Markdown 文档中的 HTTP/HTTPS/FTP URL 被移除的问题
+    - [OpenMinerU] 修复 ZIP 结构变更导致的预处理 ENOENT 错误
+    - [七牛云] 修复 GPT-5.4 模型的 PDF 上传回归问题
+    - [设置] 提供商模型列表操作的微小对齐修复
+    <!--LANG:END-->

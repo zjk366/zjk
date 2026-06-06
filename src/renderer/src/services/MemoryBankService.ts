@@ -1,0 +1,343 @@
+/**
+ * 记忆库服务（MemoryBank）
+ *
+ * 每次对话完成后保存原始对话记录，启动 3 分钟无操作计时器。
+ * 超时后将所有记录交给 AI 精炼总结，保存到记忆库。
+ */
+import { loggerService } from '@logger'
+import db from '@renderer/databases'
+import { fetchGenerate } from '@renderer/services/ApiService'
+import { getDefaultModel } from '@renderer/services/AssistantService'
+import { EventEmitter, EVENT_NAMES } from '@renderer/services/EventService'
+import store from '@renderer/store'
+import type { ConversationLog, Memory } from '@renderer/types/memory'
+import { MEMORY_CONFIG } from '@renderer/types/memory'
+
+const logger = loggerService.withContext('MemoryBankService')
+
+class MemoryBankService {
+  private static instance: MemoryBankService
+  private cleanupTimer: ReturnType<typeof setInterval> | null = null
+  private idleTimer: ReturnType<typeof setTimeout> | null = null
+  private initialized = false
+  private activeTopicId: string | null = null
+  /** 记录上一次保存时的对话数量，避免重复总结 */
+  private lastSavedLogCount = 0
+
+  static getInstance(): MemoryBankService {
+    if (!MemoryBankService.instance) {
+      MemoryBankService.instance = new MemoryBankService()
+    }
+    return MemoryBankService.instance
+  }
+
+  setActiveTopicId(topicId: string | null): void {
+    this.activeTopicId = topicId
+    this.lastSavedLogCount = 0
+  }
+
+  // ---- 初始化/销毁 ----
+
+  init(): void {
+    if (this.initialized) return
+    this.initialized = true
+
+    // 每次对话完成 → 保存原始记录 + 重置 2 分钟计时器
+    EventEmitter.on(EVENT_NAMES.MESSAGE_COMPLETE, this.onMessageComplete)
+
+    // 启动时：检查是否有未总结的日志 → 调 AI 总结（关闭时来不及做的事）
+    void this.summarizePendingLogs()
+
+    // 关闭/切后台时：只保存原始日志（不等待 AI 总结，保证关闭流畅）
+    // 启动时再拿这些日志去总结
+    document.addEventListener('visibilitychange', this.onVisibilityChange)
+    window.addEventListener('beforeunload', this.onBeforeUnload)
+
+    this.startCleanupTimer()
+    logger.info('MemoryBankService initialized')
+  }
+
+  destroy(): void {
+    EventEmitter.off(EVENT_NAMES.MESSAGE_COMPLETE, this.onMessageComplete)
+    document.removeEventListener('visibilitychange', this.onVisibilityChange)
+    window.removeEventListener('beforeunload', this.onBeforeUnload)
+    this.clearIdleTimer()
+    this.stopCleanupTimer()
+    this.initialized = false
+  }
+
+  /** 启动时：检查所有未总结的日志 → 调 AI 逐话题总结 */
+  private async summarizePendingLogs(): Promise<void> {
+    try {
+      const allLogs: ConversationLog[] = await db.table('conversation_logs').toArray()
+      const topicIds = [...new Set(allLogs.map((l) => l.topicId))]
+      for (const tid of topicIds) {
+        logger.info(`Found pending logs for topic ${tid}, triggering AI summary...`)
+        await this.triggerAISummary(tid)
+      }
+    } catch (err) {
+      logger.error('Failed to summarize pending logs:', err)
+    }
+  }
+
+  // ============================================================
+  //  第一步：每次对话 → 保存原始对话记录 + 重置闲置计时器
+  // ============================================================
+
+  private onMessageComplete = async (data: { id: string; topicId: string; status: string }) => {
+    if (data.status !== 'success') return
+
+    // 保存原始对话记录
+    try {
+      const topicRecord = await db.topics.get(data.topicId)
+      if (!topicRecord?.messages || topicRecord.messages.length < 2) return
+
+      const msgs = topicRecord.messages
+      const lastUser = [...msgs].reverse().find((m) => m.role === 'user')
+      const lastAssistant = [...msgs].reverse().find((m) => m.role === 'assistant')
+      if (!lastUser || !lastAssistant) return
+
+      // 从 message_blocks 表提取消息文本
+      const getContent = async (msgId: string): Promise<string> => {
+        try {
+          const blocks: any[] = await db.table('message_blocks')
+            .where('messageId').equals(msgId).toArray()
+          return blocks.filter((b) => b.type === 'main_text')
+            .map((b) => b.content || '').join('\n').trim()
+        } catch { return '' }
+      }
+
+      const userContent = await getContent(lastUser.id)
+      const assistantContent = await getContent(lastAssistant.id)
+      if (!userContent && !assistantContent) return
+
+      await db.table('conversation_logs').add({
+        id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        topicId: data.topicId,
+        userContent: userContent.slice(0, 1000),
+        assistantContent: assistantContent.slice(0, 1000),
+        createdAt: new Date().toISOString(),
+      } as ConversationLog)
+
+      // 重置 3 分钟闲置计时器
+      this.resetIdleTimer(data.topicId)
+    } catch (err) {
+      logger.error('Failed to save conversation log:', err)
+    }
+  }
+
+  // ============================================================
+  //  闲置计时器：3 分钟无对话 → 调 AI 总结
+  // ============================================================
+
+  private resetIdleTimer(topicId: string): void {
+    this.clearIdleTimer()
+    this.idleTimer = setTimeout(() => {
+      void this.triggerAISummary(topicId)
+    }, 2 * 60 * 1000) // 2 分钟
+  }
+
+  private clearIdleTimer(): void {
+    if (this.idleTimer) {
+      clearTimeout(this.idleTimer)
+      this.idleTimer = null
+    }
+  }
+
+  /** 3 分钟无操作 → 调 AI 总结对话 */
+  private async triggerAISummary(topicId: string): Promise<void> {
+    try {
+      // 读取该话题的所有原始对话记录
+      const logs: ConversationLog[] = await db.table('conversation_logs')
+        .where('topicId').equals(topicId).toArray()
+
+      if (logs.length === 0 || logs.length <= this.lastSavedLogCount) return
+
+      this.lastSavedLogCount = logs.length
+
+      // 组装对话文本
+      const conversationText = logs.map((l, i) =>
+        `[用户]: ${l.userContent}\n[助手]: ${l.assistantContent}`
+      ).join('\n\n')
+
+      // 获取当前模型（默认助手使用的模型）
+      const assistant = store.getState().assistants.defaultAssistant
+      const model = assistant?.model || getDefaultModel()
+      if (!model) {
+        logger.warn('No model available for AI summary, using local summary')
+        await this.saveLocalSummary(topicId, logs)
+        return
+      }
+
+      // 调 AI 总结
+      const systemPrompt = `你是一个对话总结助手。请对以下对话进行精炼总结，提取用户的核心问题和 AI 回答的要点。
+要求：
+1. 用简洁的语言概括用户关注的主题
+2. 列出 AI 回答的关键建议或结论
+3. 保留技术细节和重要信息
+4. 控制在 300 字以内`
+
+      const summary = await fetchGenerate({
+        prompt: systemPrompt,
+        content: conversationText,
+        model,
+      })
+
+      if (summary) {
+        await this.saveMemory(topicId, summary, conversationText)
+      } else {
+        await this.saveLocalSummary(topicId, logs)
+      }
+    } catch (err) {
+      logger.error('AI summary failed, using local summary:', err)
+      const logs: ConversationLog[] = await db.table('conversation_logs')
+        .where('topicId').equals(topicId).toArray()
+      if (logs.length > 0) await this.saveLocalSummary(topicId, logs)
+    }
+  }
+
+  /** AI 总结失败时的降级方案：本地截取摘要 */
+  private async saveLocalSummary(topicId: string, logs: ConversationLog[]): Promise<void> {
+    const userContents = logs.map((l) => l.userContent).filter(Boolean)
+    const assistantContents = logs.map((l) => l.assistantContent).filter(Boolean)
+    const summary = this.generateLocalSummary(userContents, assistantContents)
+    const fullText = [...userContents, ...assistantContents].join(' ')
+    await this.saveMemory(topicId, summary, fullText)
+  }
+
+  // ============================================================
+  //  保存到记忆库
+  // ============================================================
+
+  private async saveMemory(topicId: string, summary: string, fullText: string): Promise<void> {
+    if (!summary) return
+
+    const keywords = this.extractKeywords(fullText)
+    const table = db.table<Memory>('memories')
+    const existing = (await table.toArray()).find((m) => m.topicId === topicId && !m.isDeleted)
+
+    const now = new Date().toISOString()
+    const expiresAt = new Date(Date.now() + MEMORY_CONFIG.DEFAULT_EXPIRE_DAYS * 24 * 60 * 60 * 1000).toISOString()
+
+    if (existing) {
+      await table.update(existing.id, { summary, keywords, lastReferencedAt: now, expiresAt })
+    } else {
+      await table.add({
+        id: `mem_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        topicId, summary, keywords, createdAt: now, lastReferencedAt: now,
+        isDeleted: false, expiresAt, sourceAssistantName: '',
+      })
+    }
+
+    // 清除原始日志
+    await db.table('conversation_logs').where('topicId').equals(topicId).delete()
+    logger.info(`Memory saved for topic ${topicId}`)
+  }
+
+  // ---- 本地降级总结 ----
+
+  private generateLocalSummary(userContents: string[], assistantContents: string[]): string {
+    const parts: string[] = []
+    if (userContents.length > 0) {
+      const text = userContents.length <= 3
+        ? userContents.join('；')
+        : `${userContents.slice(0, 2).join('；')}；...；${userContents[userContents.length - 1]}`
+      parts.push(`用户关注: ${text.slice(0, 300)}`)
+    }
+    if (assistantContents.length > 0) {
+      const text = assistantContents.length <= 2
+        ? assistantContents.join('；')
+        : `${assistantContents[0]}；...；${assistantContents[assistantContents.length - 1]}`
+      parts.push(`回答要点: ${text.slice(0, 300)}`)
+    }
+    return parts.join('\n').slice(0, MEMORY_CONFIG.MAX_SUMMARY_LENGTH)
+  }
+
+  private extractKeywords(text: string): string[] {
+    const stopWords = new Set([
+      '一个', '这个', '那个', '什么', '怎么', '可以', '没有', '就是', '不是',
+      '我们', '你们', '他们', '自己', '因为', '所以', '如果', '但是', '而且',
+      '或者', '然后', '最后', '开始', '需要', '使用', '知道', '认为', '可能',
+      '应该', '已经', '通过', '还有', '之后', '之前', '并且', '虽然', '以及',
+    ])
+    const words = text.split(/[\s，。！？、；：""''（）\(\)\[\]【】,.\!?;:()\[\]{}]+/)
+    const freq: Record<string, number> = {}
+    for (const w of words) {
+      const word = w.trim()
+      if (word.length < 2 || /^\d+$/.test(word) || stopWords.has(word)) continue
+      freq[word] = (freq[word] || 0) + 1
+    }
+    return Object.entries(freq).sort((a, b) => b[1] - a[1]).slice(0, MEMORY_CONFIG.MAX_KEYWORDS).map(([w]) => w)
+  }
+
+  // ---- 关闭/切后台时强制总结 ----
+
+  /** 关闭/切后台时：仅清除计时器，不触发 AI 总结（启动时再处理） */
+  private onVisibilityChange = (): void => {
+    if (document.visibilityState === 'hidden') {
+      this.clearIdleTimer()
+    }
+  }
+
+  private onBeforeUnload = (): void => {
+    this.clearIdleTimer()
+  }
+
+  // ---- CRUD (公开) ----
+
+  async getAllActive(): Promise<Memory[]> {
+    const all: Memory[] = await db.table('memories').toArray()
+    return all.filter((m) => !m.isDeleted)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+  }
+
+  async getAllTrashed(): Promise<Memory[]> {
+    const all: Memory[] = await db.table('memories').toArray()
+    return all.filter((m) => m.isDeleted)
+      .sort((a, b) => new Date(b.deletedAt || b.createdAt).getTime() - new Date(a.deletedAt || a.createdAt).getTime())
+  }
+
+  async trash(id: string): Promise<void> {
+    await db.table('memories').update(id, { isDeleted: true, deletedAt: new Date().toISOString() })
+  }
+
+  async restore(id: string): Promise<void> {
+    await db.table('memories').update(id, { isDeleted: false, deletedAt: undefined })
+  }
+
+  async permanentlyDelete(id: string): Promise<void> {
+    await db.table('memories').delete(id)
+  }
+
+  async search(keyword: string): Promise<Memory[]> {
+    const all = await this.getAllActive()
+    const kw = keyword.toLowerCase()
+    return all.filter((m) => m.summary.toLowerCase().includes(kw) || m.keywords.some((k) => k.toLowerCase().includes(kw)))
+  }
+
+  // ---- 定时清理 ----
+
+  private startCleanupTimer(): void {
+    this.runCleanup()
+    this.cleanupTimer = setInterval(() => this.runCleanup(), 6 * 60 * 60 * 1000)
+  }
+
+  private stopCleanupTimer(): void {
+    if (this.cleanupTimer) { clearInterval(this.cleanupTimer); this.cleanupTimer = null }
+  }
+
+  private async runCleanup(): Promise<void> {
+    try {
+      const now = Date.now()
+      const all: Memory[] = await db.table('memories').toArray()
+      const oneDay = 24 * 60 * 60 * 1000
+      for (const m of all) {
+        if (!m.isDeleted && m.expiresAt && now > new Date(m.expiresAt).getTime()) await this.trash(m.id)
+        if (m.isDeleted && m.deletedAt && now - new Date(m.deletedAt).getTime() > MEMORY_CONFIG.TRASH_RETENTION_DAYS * oneDay)
+          await this.permanentlyDelete(m.id)
+      }
+    } catch (err) { logger.error('Cleanup error:', err) }
+  }
+}
+
+export default MemoryBankService

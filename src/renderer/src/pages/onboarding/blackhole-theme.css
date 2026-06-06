@@ -1,0 +1,360 @@
+/* ============================================================
+   Blackhole Theme - Deep Space / Premium Minimal
+   Inspired by SpaceX design language
+   ============================================================ */
+
+/* -- Container -- */
+.blackhole-container {
+  position: relative;
+  overflow: hidden;
+}
+
+/* -- Deep space gradient background -- */
+.blackhole-bg {
+  background:
+    radial-gradient(ellipse at 50% 50%, rgba(22, 119, 255, 0.08) 0%, transparent 60%),
+    radial-gradient(ellipse at 30% 20%, rgba(100, 180, 255, 0.04) 0%, transparent 40%),
+    radial-gradient(ellipse at 70% 80%, rgba(80, 140, 255, 0.03) 0%, transparent 40%),
+    linear-gradient(160deg, #080c18 0%, #0a0e1a 30%, #0d1528 60%, #090d1a 100%) !important;
+}
+
+/* -- Static stars (subtle, no animation) -- */
+.blackhole-stars {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 0;
+}
+.blackhole-stars::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-image:
+    radial-gradient(1px 1px at 10% 15%, rgba(255,255,255,0.6), transparent),
+    radial-gradient(1px 1px at 25% 25%, rgba(255,255,255,0.4), transparent),
+    radial-gradient(1px 1px at 40% 10%, rgba(255,255,255,0.7), transparent),
+    radial-gradient(1px 1px at 55% 30%, rgba(255,255,255,0.3), transparent),
+    radial-gradient(1px 1px at 70% 12%, rgba(255,255,255,0.5), transparent),
+    radial-gradient(2px 2px at 85% 20%, rgba(200,220,255,0.7), transparent),
+    radial-gradient(1px 1px at 15% 45%, rgba(255,255,255,0.4), transparent),
+    radial-gradient(1px 1px at 33% 38%, rgba(255,255,255,0.3), transparent),
+    radial-gradient(2px 2px at 62% 42%, rgba(220,240,255,0.5), transparent),
+    radial-gradient(1px 1px at 78% 35%, rgba(255,255,255,0.4), transparent),
+    radial-gradient(1px 1px at 5% 60%, rgba(255,255,255,0.3), transparent),
+    radial-gradient(1px 1px at 45% 65%, rgba(255,255,255,0.4), transparent),
+    radial-gradient(1px 1px at 60% 58%, rgba(255,255,255,0.3), transparent),
+    radial-gradient(2px 2px at 80% 55%, rgba(180,210,255,0.6), transparent),
+    radial-gradient(1px 1px at 35% 75%, rgba(255,255,255,0.3), transparent),
+    radial-gradient(1px 1px at 50% 85%, rgba(255,255,255,0.4), transparent),
+    radial-gradient(2px 2px at 68% 80%, rgba(200,230,255,0.6), transparent),
+    radial-gradient(1px 1px at 28% 95%, rgba(255,255,255,0.4), transparent),
+    radial-gradient(1px 1px at 75% 92%, rgba(255,255,255,0.5), transparent);
+}
+
+/* -- Logo - subtle pulse animation -- */
+.blackhole-logo-wrapper {
+  position: relative;
+  z-index: 1;
+}
+.blackhole-logo {
+  border-radius: 50% !important;
+  animation: pulseGlow 4s ease-in-out infinite;
+  box-shadow:
+    0 0 20px rgba(22, 119, 255, 0.25),
+    0 0 60px rgba(22, 119, 255, 0.08);
+  transition: box-shadow 0.5s ease;
+}
+
+@keyframes pulseGlow {
+  0%, 100% {
+    box-shadow:
+      0 0 20px rgba(22, 119, 255, 0.25),
+      0 0 60px rgba(22, 119, 255, 0.08);
+  }
+  50% {
+    box-shadow:
+      0 0 28px rgba(22, 119, 255, 0.35),
+      0 0 80px rgba(22, 119, 255, 0.12);
+  }
+}
+
+/* -- Title - slow aurora gradient -- */
+.blackhole-title {
+  color: #f0f4f8 !important;
+  font-weight: 700 !important;
+  letter-spacing: 4px !important;
+  margin-bottom: 8px !important;
+  background: linear-gradient(135deg, #f0f4f8 0%, #69b1ff 50%, #f0f4f8 100%);
+  -webkit-background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+  background-clip: text !important;
+  background-size: 200% 200% !important;
+  animation: auroraShift 6s ease-in-out infinite;
+}
+
+@keyframes auroraShift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+/* -- Subtitle -- */
+.blackhole-subtitle {
+  color: rgba(180, 200, 220, 0.55) !important;
+  font-size: 13px !important;
+  font-weight: 400 !important;
+  letter-spacing: 3px !important;
+  text-transform: uppercase !important;
+}
+
+/* -- Primary Button (clean, premium) -- */
+.blackhole-btn-primary {
+  background: rgba(255, 255, 255, 0.08) !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  color: #f0f4f8 !important;
+  transition: all 0.3s ease !important;
+  backdrop-filter: blur(8px);
+}
+.blackhole-btn-primary:hover {
+  background: rgba(255, 255, 255, 0.14) !important;
+  border-color: rgba(255, 255, 255, 0.3) !important;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+.blackhole-btn-primary:active {
+  transform: translateY(0);
+}
+
+/* -- Secondary Button -- */
+.blackhole-btn-secondary {
+  background: transparent !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  color: rgba(200, 215, 230, 0.6) !important;
+  transition: all 0.3s ease !important;
+}
+.blackhole-btn-secondary:hover {
+  border-color: rgba(255, 255, 255, 0.2) !important;
+  color: rgba(200, 215, 230, 0.9) !important;
+  background: rgba(255, 255, 255, 0.03) !important;
+}
+
+/* -- Divider -- */
+.blackhole-divider {
+  border-top-color: rgba(255, 255, 255, 0.06) !important;
+  margin: 4px 0 !important;
+}
+.blackhole-divider > span {
+  color: rgba(160, 185, 210, 0.4) !important;
+  font-size: 11px !important;
+  letter-spacing: 2px !important;
+  background: transparent !important;
+  padding: 0 8px !important;
+}
+
+/* -- Hint / Version text -- */
+.blackhole-hint,
+.blackhole-version {
+  color: rgba(120, 150, 180, 0.3) !important;
+  font-size: 11px !important;
+  letter-spacing: 2px !important;
+  font-weight: 300 !important;
+}
+
+/* -- Provider Popup Modal (手动配置弹窗) -- */
+.ant-modal-mask {
+  background: rgba(0, 0, 0, 0.7) !important;
+  backdrop-filter: blur(4px);
+}
+.ant-modal-title {
+  color: #e8ecf4 !important;
+}
+.ant-modal-close {
+  color: rgba(255, 255, 255, 0.3) !important;
+}
+.ant-modal-close:hover {
+  color: rgba(255, 255, 255, 0.7) !important;
+  background: rgba(255, 255, 255, 0.06) !important;
+}
+
+/* -- Skip Button -- */
+.blackhole-skip-btn {
+  color: rgba(120, 150, 180, 0.4) !important;
+  background: transparent !important;
+  transition: all 0.2s ease;
+  z-index: 10;
+  border: none !important;
+}
+.blackhole-skip-btn:hover {
+  color: rgba(180, 200, 220, 0.7) !important;
+  background: rgba(255, 255, 255, 0.04) !important;
+}
+
+/* -- Back Button -- */
+.blackhole-back-btn {
+  color: rgba(120, 150, 180, 0.4) !important;
+  background: transparent !important;
+  z-index: 10;
+  border: none !important;
+}
+.blackhole-back-btn:hover {
+  color: rgba(180, 200, 220, 0.7) !important;
+  background: rgba(255, 255, 255, 0.04) !important;
+}
+
+/* -- Subtle entry animation -- */
+.blackhole-container > div {
+  animation: fadeUp 0.6s ease forwards;
+  opacity: 0;
+}
+.blackhole-container > div:nth-child(2) { animation-delay: 0.1s; }
+.blackhole-container > div:nth-child(3) { animation-delay: 0.2s; }
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* -- 选择默认模型页面 - 强制浅色文字 + 图标 -- */
+.blackhole-container [data-insp-path*="ModelSettings"],
+.blackhole-container [data-insp-path*="ModelSettings"] *,
+.blackhole-container [data-insp-path*="ModelItem"],
+.blackhole-container [data-insp-path*="ModelItem"] * {
+  color: #e8ecf4 !important;
+  -webkit-text-fill-color: #e8ecf4 !important;
+}
+.blackhole-container [data-insp-path*="ModelSettings"] svg,
+.blackhole-container [data-insp-path*="ModelItem"] svg {
+  color: #e8ecf4 !important;
+  stroke: #e8ecf4 !important;
+}
+.blackhole-container [data-insp-path*="ModelSettings"] [data-insp-path*="description"],
+.blackhole-container [data-insp-path*="ModelSettings"] [data-insp-path*="hint"] {
+  color: #8892b0 !important;
+}
+/* 选择模型页面图标 */
+.blackhole-container [data-insp-path*="ModelSettings"] [class*="Message"] svg,
+.blackhole-container [data-insp-path*="ModelSettings"] svg.lucide {
+  stroke: #e8ecf4 !important;
+}
+
+/* -- 模型选择弹窗 - 强制深色 -- */
+.ant-modal-content [data-insp-path*="SelectModelPopup"] {
+  --modal-background: #0a0e1a !important;
+  --color-background: #0a0e1a !important;
+  --color-background-mute: #111627 !important;
+  --color-background-soft: #111627 !important;
+  --color-border: rgba(255,255,255,0.08) !important;
+  --color-text: #e8ecf4 !important;
+  --color-text-1: #e8ecf4 !important;
+  --color-text-2: #8892b0 !important;
+  --color-text-3: #58607a !important;
+}
+.ant-modal-content [data-insp-path*="SelectModelPopup"] * {
+  -webkit-text-fill-color: #e8ecf4 !important;
+}
+.ant-modal-content [data-insp-path*="SelectModelPopup"] input {
+  background: transparent !important;
+  color: #e8ecf4 !important;
+}
+.ant-modal-content [data-insp-path*="SelectModelPopup"] .ant-divider {
+  border-color: rgba(255,255,255,0.06) !important;
+}
+.ant-modal-content [data-insp-path*="SelectModelPopup"] [class*="Tag"] {
+  background: rgba(255,255,255,0.06) !important;
+  border-color: rgba(255,255,255,0.1) !important;
+}
+
+/* -- 全局手动配置弹窗强制深色 - 不受系统主题影响 -- */
+.ant-modal-content {
+  background: #0a0e1a !important;
+}
+.ant-modal-header {
+  background: #0a0e1a !important;
+}
+.ant-modal-title {
+  color: #e8ecf4 !important;
+}
+.ant-modal-close {
+  color: rgba(255,255,255,0.3) !important;
+}
+.ant-modal-close:hover {
+  color: rgba(255,255,255,0.7) !important;
+}
+.ant-modal-content {
+  background: #0a0e1a !important;
+}
+.ant-modal-header {
+  background: #0a0e1a !important;
+  border-bottom-color: rgba(255,255,255,0.06) !important;
+}
+.ant-modal-title {
+  color: #e8ecf4 !important;
+}
+.ant-modal-body {
+  background: #0a0e1a !important;
+}
+.ant-modal-close {
+  color: rgba(255,255,255,0.3) !important;
+}
+.ant-modal-close:hover {
+  color: rgba(255,255,255,0.7) !important;
+}
+
+/* 左侧全部内容 - 文字强制白色（含列表中英文、字母索引、添加按钮） */
+.ant-modal-body > div > div:first-child,
+.ant-modal-body > div > div:first-child *,
+.ant-modal-body [data-insp-path*="ProviderListItem"] *,
+.ant-modal-body [data-insp-path*="ProviderItemName"] {
+  color: #e8ecf4 !important;
+  -webkit-text-fill-color: #e8ecf4 !important;
+}
+/* 提供商列表项 hover/active */
+.ant-modal-body [data-insp-path*="ProviderListItem"]:hover {
+  background: rgba(255,255,255,0.06) !important;
+}
+/* 添加按钮 */
+.ant-modal-body > div > div:first-child button {
+  color: #8892b0 !important;
+  background: rgba(255,255,255,0.04) !important;
+  border-color: rgba(255,255,255,0.08) !important;
+}
+.ant-modal-body > div > div:first-child button:hover {
+  color: #e8ecf4 !important;
+  background: rgba(255,255,255,0.08) !important;
+}
+
+/* 弹窗内右侧设置面板 - 强制深色覆盖 inline style */
+.ant-modal-body [data-insp-path*="SettingContainer"] {
+  background: #0a0e1a !important;
+}
+/* 弹窗内所有文字强制浅色 */
+.ant-modal-body [data-insp-path*="SettingContainer"] *,
+.ant-modal-body [data-insp-path*="SettingContainer"] label,
+.ant-modal-body [data-insp-path*="SettingContainer"] span,
+.ant-modal-body [data-insp-path*="SettingContainer"] div,
+.ant-modal-body [data-insp-path*="SettingContainer"] .ant-typography,
+.ant-modal-body [data-insp-path*="SettingContainer"] .ant-collapse-header,
+.ant-modal-body [data-insp-path*="SettingContainer"] .ant-collapse-content-box {
+  color: #e8ecf4 !important;
+  -webkit-text-fill-color: #e8ecf4 !important;
+}
+/* 帮助/链接文字稍淡 */
+.ant-modal-body [data-insp-path*="SettingContainer"] [class*="SettingHelpText"],
+.ant-modal-body [data-insp-path*="SettingContainer"] [class*="SettingHelpLink"] {
+  color: #8892b0 !important;
+}
+/* 输入框 */
+.ant-modal-body [data-insp-path*="SettingContainer"] .ant-input,
+.ant-modal-body [data-insp-path*="SettingContainer"] .ant-input-affix-wrapper {
+  background: #111627 !important;
+  border-color: rgba(255,255,255,0.08) !important;
+  color: #e8ecf4 !important;
+}
+.ant-modal-body [data-insp-path*="SettingContainer"] .ant-input::placeholder {
+  color: #58607a !important;
+}
