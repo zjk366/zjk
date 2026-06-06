@@ -19,7 +19,7 @@ interface Props {
  * 点击打开搜索面板，支持关键词筛选和滚动浏览。
  */
 const MessageNavigator: React.FC<Props> = ({ topic }) => {
-  const allMessages = useTopicMessages(topic.id)
+  const allMessages = useTopicMessages(topic?.id ?? '')
   const { topicPosition, showTopics } = useSettings()
   const showRightTopics = topicPosition === 'right' && showTopics
   const [open, setOpen] = useState(false)
