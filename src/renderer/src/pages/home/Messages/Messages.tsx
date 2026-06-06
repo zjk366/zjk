@@ -54,8 +54,9 @@ interface MessagesProps {
 const logger = loggerService.withContext('Messages')
 
 const Messages: React.FC<MessagesProps> = ({ assistant, topic, setActiveTopic, onComponentUpdate, onFirstUpdate }) => {
+  const topicId = topic?.id ?? ''
   const { containerRef: scrollContainerRef, handleScroll: handleScrollPosition } = useScrollPosition(
-    `topic-${topic.id}`
+    `topic-${topicId}`
   )
   const [displayMessages, setDisplayMessages] = useState<Message[]>([])
   const [hasMore, setHasMore] = useState(false)
@@ -66,7 +67,7 @@ const Messages: React.FC<MessagesProps> = ({ assistant, topic, setActiveTopic, o
   const { showPrompt, messageNavigation } = useSettings()
   const { t } = useTranslation()
   const dispatch = useAppDispatch()
-  const messages = useTopicMessages(topic.id)
+  const messages = useTopicMessages(topicId)
   const { displayCount, clearTopicMessages, deleteMessage, createTopicBranch } = useMessageOperations(topic)
   const { setTimeoutTimer } = useTimer()
 
@@ -106,7 +107,7 @@ const Messages: React.FC<MessagesProps> = ({ assistant, topic, setActiveTopic, o
 
   const clearTopic = useCallback(
     async (data: Topic) => {
-      if (data && data.id !== topic.id) {
+      if (data && data.id !== topicId) {
         await clearTopicMessages(data.id)
         return
       }
@@ -114,7 +115,7 @@ const Messages: React.FC<MessagesProps> = ({ assistant, topic, setActiveTopic, o
       await clearTopicMessages()
       setDisplayMessages([])
     },
-    [clearTopicMessages, topic.id]
+    [clearTopicMessages, topicId]
   )
 
   useEffect(() => {
@@ -161,8 +162,8 @@ const Messages: React.FC<MessagesProps> = ({ assistant, topic, setActiveTopic, o
           }
 
           const { message: clearMessage } = getUserMessage({ assistant, topic, type: 'clear' })
-          dispatch(newMessagesActions.addMessage({ topicId: topic.id, message: clearMessage }))
-          await saveMessageAndBlocksToDB(topic.id, clearMessage, [])
+          dispatch(newMessagesActions.addMessage({ topicId: topicId, message: clearMessage }))
+          await saveMessageAndBlocksToDB(topicId, clearMessage, [])
 
           scrollToBottom()
         } finally {
@@ -183,7 +184,7 @@ const Messages: React.FC<MessagesProps> = ({ assistant, topic, setActiveTopic, o
         addTopic(newTopic)
 
         // 2. Call the thunk to clone messages and update DB
-        const success = await createTopicBranch(topic.id, currentMessages.length - index, newTopic)
+        const success = await createTopicBranch(topicId, currentMessages.length - index, newTopic)
 
         if (success) {
           // 3. Set the new topic as active
@@ -216,7 +217,7 @@ const Messages: React.FC<MessagesProps> = ({ assistant, topic, setActiveTopic, o
               }
 
               dispatch(updateOneBlock({ id: msgBlockId, changes: { content: updatedRaw } }))
-              await dispatch(updateMessageAndBlocksThunk(topic.id, null, [updatedBlock]))
+              await dispatch(updateMessageAndBlocksThunk(topicId, null, [updatedBlock]))
 
               window.toast.success(t('code_block.edit.save.success'))
             } catch (error) {
