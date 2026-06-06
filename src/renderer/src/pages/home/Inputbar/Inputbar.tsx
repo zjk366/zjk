@@ -138,7 +138,7 @@ const Inputbar: FC<Props> = ({ assistant: initialAssistant, setActiveTopic, topi
 }
 
 const InputbarInner: FC<InputbarInnerProps> = ({ assistant: initialAssistant, setActiveTopic, topic, actionsRef, droppedFiles }) => {
-  const scope = topic.type ?? TopicType.Chat
+  const scope = topic?.type ?? TopicType.Chat
   const config = getInputbarConfig(scope)
 
   const { files, mentionedModels, selectedKnowledgeBases } = useInputbarToolsState()
