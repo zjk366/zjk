@@ -234,7 +234,7 @@ const Chat: FC<Props> = (props) => {
                   className="flex flex-1 flex-col justify-between"
                   style={{ height: `calc(${mainHeight} - var(--navbar-height))` }}>
                   <Messages
-                    key={props.activeTopic.id}
+                    key={props.activeTopic?.id ?? 'loading'}
                     assistant={assistant}
                     topic={props.activeTopic}
                     setActiveTopic={props.setActiveTopic}
