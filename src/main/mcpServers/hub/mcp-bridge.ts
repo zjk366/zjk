@@ -5,7 +5,7 @@ import { loggerService } from '@logger'
 import mcpService from '@main/services/MCPService'
 import type { MCPCallToolResponse, MCPTool, MCPToolResultContent } from '@types'
 
-import { fileVault } from '../services/FileVault'
+import { fileVault } from '@main/services/FileVault'
 import { buildToolNameMapping, resolveToolId, type ToolIdentity, type ToolNameMapping } from './toolname'
 
 const logger = loggerService.withContext('HubBridge')
@@ -118,14 +118,23 @@ export const callMcpTool = async (nameOrId: string, params: unknown, callId?: st
 
   // 保存图片到 FileVault（持久化文件库）
   if (result?.content) {
-    const imageItems = result.content.filter((c: any) => c.type === 'image' && c.data)
+    const imageItems = result.content.filter((c: any) => {
+      // 标准 MCP 图片块
+      if (c.type === 'image' && c.data) return true
+      // 资源内嵌 blob 图片块 (@cherry/browser 等)
+      if (c.type === 'resource' && (c.resource?.blob || c.resource?.uri?.startsWith('data:'))) return true
+      return false
+    })
     if (imageItems.length > 0) {
       const refs: string[] = []
       for (const img of imageItems) {
         try {
-          const ext = img.mimeType?.split('/')[1] || 'png'
+          // 兼容 type: 'image' 和 type: 'resource' 两种格式
+          const base64Data = img.data || img.resource?.blob || (img.resource?.uri?.startsWith('data:') ? img.resource.uri : '')
+          const mimeType = img.mimeType || img.resource?.mimeType || 'image/png'
+          const ext = mimeType.split('/')[1] || 'png'
           const name = `screenshot_${Date.now()}.${ext}`
-          const uri = fileVault.saveFromBase64(img.data, name)
+          const uri = fileVault.saveFromBase64(base64Data, name)
           refs.push(uri)
           logger.info(`Image saved to vault: ${uri}`)
         } catch (e) {
