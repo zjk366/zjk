@@ -18,11 +18,14 @@ const logger = loggerService.withContext('MemoryBankService')
 class MemoryBankService {
   private static instance: MemoryBankService
   private cleanupTimer: ReturnType<typeof setInterval> | null = null
-  private idleTimer: ReturnType<typeof setTimeout> | null = null
+  /** 对话中不断精炼的草稿总结计时器 */
+  private draftTimer: ReturnType<typeof setTimeout> | null = null
   private initialized = false
   private activeTopicId: string | null = null
-  /** 记录上一次保存时的对话数量，避免重复总结 */
-  private lastSavedLogCount = 0
+  /** 记录草稿总结时已处理了多少条日志 */
+  private lastDraftLogCount = 0
+  /** 当前会话 ID（每次启动生成） */
+  private sessionId = ''
 
   static getInstance(): MemoryBankService {
     if (!MemoryBankService.instance) {
@@ -33,7 +36,6 @@ class MemoryBankService {
 
   setActiveTopicId(topicId: string | null): void {
     this.activeTopicId = topicId
-    this.lastSavedLogCount = 0
   }
 
   // ---- 初始化/销毁 ----
@@ -41,15 +43,14 @@ class MemoryBankService {
   init(): void {
     if (this.initialized) return
     this.initialized = true
+    this.sessionId = `session_${Date.now()}`
 
-    // 每次对话完成 → 保存原始记录 + 重置 2 分钟计时器
+    // 每次对话完成 → 保存原始记录 + 触发草稿精炼
     EventEmitter.on(EVENT_NAMES.MESSAGE_COMPLETE, this.onMessageComplete)
 
-    // 启动时：检查是否有未总结的日志 → 调 AI 总结（关闭时来不及做的事）
-    void this.summarizePendingLogs()
+    // 启动时：处理遗留未完成的草稿 + 去重
+    void this.startupCleanup()
 
-    // 关闭/切后台时：只保存原始日志（不等待 AI 总结，保证关闭流畅）
-    // 启动时再拿这些日志去总结
     document.addEventListener('visibilitychange', this.onVisibilityChange)
     window.addEventListener('beforeunload', this.onBeforeUnload)
 
@@ -61,24 +62,36 @@ class MemoryBankService {
     EventEmitter.off(EVENT_NAMES.MESSAGE_COMPLETE, this.onMessageComplete)
     document.removeEventListener('visibilitychange', this.onVisibilityChange)
     window.removeEventListener('beforeunload', this.onBeforeUnload)
-    this.clearIdleTimer()
+    this.clearDraftTimer()
     this.stopCleanupTimer()
     this.initialized = false
   }
 
-  /** 启动时：处理遗留日志 + 去重合并相似记忆 */
-  private async summarizePendingLogs(): Promise<void> {
+  /** 启动时：处理未完成的草稿 + 去重合并相似记忆 */
+  private async startupCleanup(): Promise<void> {
     try {
-      // 1) 先处理遗留日志
-      const allLogs: ConversationLog[] = await db.table('conversation_logs').toArray()
-      if (allLogs.length > 0) {
-        logger.info(`Found ${allLogs.length} pending log(s), triggering global AI summary...`)
-        await this.triggerAISummary('__all__')
+      // 1) 检查是否有未定稿的草稿记忆 → 定稿
+      const table = db.table<Memory>('memories')
+      const all = await table.toArray()
+      const draft = all.find((m) => m.topicId === '__draft__' && !m.isDeleted)
+      if (draft) {
+        logger.info(`Finalizing draft memory from previous session...`)
+        await table.update(draft.id, { topicId: this.sessionId })
+        this.debounceSyncToDisk()
       }
-      // 2) 去重合并相似记忆
+
+      // 2) 处理遗留日志 → 重新开始草稿精炼
+      const pendingLogs: ConversationLog[] = await db.table('conversation_logs').toArray()
+      if (pendingLogs.length > 0) {
+        logger.info(`Found ${pendingLogs.length} pending log(s), starting new draft...`)
+        this.lastDraftLogCount = 0
+        await this.updateDraft()
+      }
+
+      // 3) 去重合并
       await this.deduplicateMemories()
     } catch (err) {
-      logger.error('Failed to summarize pending logs:', err)
+      logger.error('Failed startup cleanup:', err)
     }
   }
 
@@ -173,79 +186,95 @@ class MemoryBankService {
         createdAt: new Date().toISOString(),
       } as ConversationLog)
 
-      // 重置 3 分钟闲置计时器
-      this.resetIdleTimer(data.topicId)
+      // 触发草稿精炼（30 秒防抖）
+      this.scheduleDraft()
     } catch (err) {
       logger.error('Failed to save conversation log:', err)
     }
   }
 
   // ============================================================
-  //  闲置计时器：3 分钟无对话 → 调 AI 总结
+  //  草稿精炼：对话中不断更新草稿总结（30 秒防抖）
   // ============================================================
 
-  private resetIdleTimer(topicId: string): void {
-    this.clearIdleTimer()
-    this.idleTimer = setTimeout(() => {
-      void this.triggerAISummary(topicId)
-    }, 2 * 60 * 1000) // 2 分钟
+  private scheduleDraft(): void {
+    this.clearDraftTimer()
+    this.draftTimer = setTimeout(() => {
+      void this.updateDraft()
+    }, 30 * 1000) // 30 秒防抖
   }
 
-  private clearIdleTimer(): void {
-    if (this.idleTimer) {
-      clearTimeout(this.idleTimer)
-      this.idleTimer = null
+  private clearDraftTimer(): void {
+    if (this.draftTimer) {
+      clearTimeout(this.draftTimer)
+      this.draftTimer = null
     }
   }
 
-  /** 闲置超时 → 调 AI 总结所有话题对话（合并为一条全局记忆） */
-  private async triggerAISummary(topicId: string): Promise<void> {
+  /** 更新草稿记忆（读取所有 logs → 调 AI 总结 → 更新/创建草稿） */
+  private async updateDraft(): Promise<void> {
     try {
-      // 读取 ALL 原始对话记录（不再按话题区分）
       const allLogs: ConversationLog[] = await db.table('conversation_logs').toArray()
-      if (allLogs.length === 0) return
+      if (allLogs.length === 0 || allLogs.length <= this.lastDraftLogCount) return
 
-      // 组装对话文本
+      this.lastDraftLogCount = allLogs.length
       const conversationText = allLogs.map((l, i) =>
         `[对话 ${i + 1}]\n[用户]: ${l.userContent}\n[助手]: ${l.assistantContent}`
       ).join('\n\n')
 
-      // 获取当前模型
       const assistant = store.getState().assistants.defaultAssistant
       const model = assistant?.model || getDefaultModel()
-      if (!model) {
-        logger.warn('No model available for AI summary, using local summary')
-        await this.saveLocalSummary('__all__', allLogs)
-        return
-      }
-
-      // 调 AI 总结
-      const systemPrompt = `你是一个对话记忆总结助手。请对以下所有对话进行精炼总结，提取关键信息作为长期记忆保存。
-
-严格按要求输出：
-1. 【用户信息】提取用户提到的个人偏好、项目信息、身份背景等可识别的用户画像信息
-2. 【技术要点】用户关心的技术问题、解决方案、代码片段的关键思路
-3. 【结论/决策】对话中达成的结论、做出的决策、待办事项
-
-要求：总字数控制在 300 字以内，语言简洁，保留可操作的细节。
-这是之前所有对话的综合，请确保覆盖所有重要信息，不要遗漏。`
+      if (!model) return await this.saveDraftLocally(conversationText)
 
       const summary = await fetchGenerate({
-        prompt: systemPrompt,
+        prompt: `你是一个对话记忆总结助手。请对以下对话进行精炼总结。
+
+严格要求输出格式：
+1. 【用户信息】
+2. 【技术要点】
+3. 【结论/决策】
+
+要求：总字数控制在 200 字以内，语言简洁。保留可操作的细节。
+
+这是对话的实时总结，后续可能还有更多对话会追加进来，请在总结中注明"截至目前"。`,
         content: conversationText,
         model,
       })
 
-      if (summary) {
-        await this.saveMemory('__all__', summary, conversationText)
-      } else {
-        await this.saveLocalSummary('__all__', allLogs)
-      }
-    } catch (err) {
-      logger.error('AI summary failed, using local summary:', err)
-      const allLogs: ConversationLog[] = await db.table('conversation_logs').toArray()
-      if (allLogs.length > 0) await this.saveLocalSummary('__all__', allLogs)
+      if (summary) await this.saveDraft(summary, conversationText)
+      else await this.saveDraftLocally(conversationText)
+    } catch {
+      // 草稿失败不影响主流程
     }
+  }
+
+  /** 无模型时的本地草稿降级 */
+  private async saveDraftLocally(fullText: string): Promise<void> {
+    const words = fullText.split(/\s+/).slice(-100).join(' ')
+    await this.saveDraft(words.slice(0, 200), fullText)
+  }
+
+  /** 保存/更新草稿记忆（topicId = __draft__ 标记为草稿） */
+  private async saveDraft(summary: string, fullText: string): Promise<void> {
+    if (!summary) return
+    const keywords = this.extractKeywords(fullText)
+    const table = db.table<Memory>('memories')
+    const existing = (await table.toArray()).find((m) => m.topicId === '__draft__' && !m.isDeleted)
+    const now = new Date().toISOString()
+
+    if (existing) {
+      await table.update(existing.id, { summary, keywords, lastReferencedAt: now })
+    } else {
+      await table.add({
+        id: `draft_${Date.now()}`,
+        topicId: '__draft__',
+        summary, keywords,
+        createdAt: now, lastReferencedAt: now,
+        isDeleted: false, sourceAssistantName: '',
+      })
+    }
+    // 草稿也同步到磁盘（防止崩溃丢失）
+    this.debounceSyncToDisk()
   }
 
   /** AI 总结失败时的降级方案：本地截取摘要 */
@@ -254,7 +283,7 @@ class MemoryBankService {
     const assistantContents = logs.map((l) => l.assistantContent).filter(Boolean)
     const summary = this.generateLocalSummary(userContents, assistantContents)
     const fullText = [...userContents, ...assistantContents].join(' ')
-    await this.saveMemory(topicId, summary, fullText)
+    await this.saveDraft(summary, fullText)
   }
 
   // ============================================================
@@ -287,28 +316,26 @@ class MemoryBankService {
     }, 2000)
   }
 
-  private async saveMemory(topicId: string, summary: string, fullText: string): Promise<void> {
-    if (!summary) return
-
-    const keywords = this.extractKeywords(fullText)
-    const table = db.table<Memory>('memories')
-    const now = new Date().toISOString()
-    const expiresAt = new Date(Date.now() + MEMORY_CONFIG.DEFAULT_EXPIRE_DAYS * 24 * 60 * 60 * 1000).toISOString()
-
-    // 每次保存都是一条新记忆（不合并），按时间倒序排列
-    // 每次软件关闭时生成一条会话总结，多次关闭就有多条记忆
-    await table.add({
-      id: `mem_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-      topicId, summary, keywords, createdAt: now, lastReferencedAt: now,
-      isDeleted: false, expiresAt, sourceAssistantName: '',
-    })
-
-    // 同步到磁盘（供主进程 MCP 读取）
-    this.debounceSyncToDisk()
-
-    // 清除所有已总结的原始日志
-    await db.table('conversation_logs').clear()
-    logger.info(`Memory saved (session summary)`)
+  /** 关闭时：将草稿记忆定稿为永久记忆 */
+  private async finalizeDraft(): Promise<void> {
+    try {
+      const table = db.table<Memory>('memories')
+      const draft = (await table.toArray()).find((m) => m.topicId === '__draft__' && !m.isDeleted)
+      if (!draft) return
+      this.clearDraftTimer()
+      // 先把草稿更新一次（拿到最新的 logs）
+      await this.updateDraft()
+      // 重新读取草稿（updateDraft 可能更新了它）
+      const updated = await table.get(draft.id)
+      if (!updated) return
+      // 定稿：改为 sessionId，设置过期时间
+      const expiresAt = new Date(Date.now() + MEMORY_CONFIG.DEFAULT_EXPIRE_DAYS * 24 * 60 * 60 * 1000).toISOString()
+      await table.update(draft.id, { topicId: this.sessionId, expiresAt })
+      // 清理已总结的日志
+      await db.table('conversation_logs').clear()
+      this.debounceSyncToDisk()
+      logger.info(`Draft finalized as memory for session ${this.sessionId}`)
+    } catch { /* 定稿失败下次启动再处理 */ }
   }
 
   // ---- 本地降级总结 ----
@@ -349,17 +376,18 @@ class MemoryBankService {
 
   // ---- 关闭/切后台时保存 ----
 
-  /** 切后台时：尽早开始保存（比 beforeunload 早数秒到数分钟） */
+  /** 切后台时：定稿草稿（如果用户不回来） */
   private onVisibilityChange = (): void => {
     if (document.visibilityState === 'hidden') {
-      void this.saveLatestConversationLog()
+      void this.finalizeDraft()
     }
   }
 
-  /** 关闭时：尽力保存末条对话（即使没写完，对话数据也在 db.topics 中不丢失） */
+  /** 关闭时：定稿草稿（来不及的话下次启动处理） */
   private onBeforeUnload = (): void => {
-    this.clearIdleTimer()
-    void this.saveLatestConversationLog()
+    this.clearDraftTimer()
+    // 尽力定稿
+    void this.finalizeDraft()
   }
 
   /** 保存当前活跃话题的最新一条对话 */
