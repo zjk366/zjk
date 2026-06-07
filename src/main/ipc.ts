@@ -1322,4 +1322,35 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
   ipcMain.handle(IpcChannel.Analytics_TrackTokenUsage, (_, data: TokenUsageData) =>
     analyticsService.trackTokenUsage(data)
   )
+
+  // ── 记忆库 IPC ────────────────────────────────────
+  const MEMORY_BANK_FILE = path.join(app.getPath('userData'), 'Data', 'memory_bank.json')
+
+  ipcMain.handle('memory:get-disk-path', () => MEMORY_BANK_FILE)
+
+  ipcMain.handle('memory:search', async (_event, query: string) => {
+    try {
+      if (!fs.existsSync(MEMORY_BANK_FILE)) return []
+      const raw = fs.readFileSync(MEMORY_BANK_FILE, 'utf-8')
+      const memories = JSON.parse(raw) as any[]
+      if (!query || !query.trim()) return memories.slice(0, 20)
+      const kw = query.toLowerCase()
+      return memories.filter((m) =>
+        m.summary?.toLowerCase().includes(kw) ||
+        m.keywords?.some((k: string) => k.toLowerCase().includes(kw))
+      ).slice(0, 20)
+    } catch { return [] }
+  })
+
+  ipcMain.handle('memory:search-by-keywords', async (_event, keywords: string[]) => {
+    try {
+      if (!fs.existsSync(MEMORY_BANK_FILE)) return []
+      const raw = fs.readFileSync(MEMORY_BANK_FILE, 'utf-8')
+      const memories = JSON.parse(raw) as any[]
+      const matched = memories.filter((m) =>
+        m.keywords?.some((k: string) => keywords.some((q) => k.toLowerCase().includes(q.toLowerCase())))
+      )
+      return matched.slice(0, 10)
+    } catch { return [] }
+  })
 }

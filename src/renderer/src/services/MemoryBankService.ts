@@ -214,6 +214,32 @@ class MemoryBankService {
   //  保存到记忆库
   // ============================================================
 
+  private memoryDirty = false
+  private syncTimer: ReturnType<typeof setTimeout> | null = null
+
+  /** 同步所有记忆到磁盘 JSON 文件（供主进程 MCP 服务读取） */
+  private async syncToDisk(): Promise<void> {
+    try {
+      const all = await this.getAllActive()
+      const json = JSON.stringify(all, null, 2)
+      // 通过 IPC 写入文件
+      const filePath = await window.electron?.ipcRenderer?.invoke('memory:get-disk-path')
+      if (filePath) {
+        await window.api.file.write(filePath, json)
+      }
+    } catch { /* 同步到磁盘失败不影响核心功能 */ }
+  }
+
+  /** 延迟触发磁盘同步（防抖） */
+  private debounceSyncToDisk(): void {
+    this.memoryDirty = true
+    if (this.syncTimer) clearTimeout(this.syncTimer)
+    this.syncTimer = setTimeout(() => {
+      void this.syncToDisk()
+      this.syncTimer = null
+    }, 2000)
+  }
+
   private async saveMemory(topicId: string, summary: string, fullText: string): Promise<void> {
     if (!summary) return
 
@@ -233,6 +259,9 @@ class MemoryBankService {
         isDeleted: false, expiresAt, sourceAssistantName: '',
       })
     }
+
+    // 同步到磁盘（供主进程 MCP 读取）
+    this.debounceSyncToDisk()
 
     // 清除原始日志
     await db.table('conversation_logs').where('topicId').equals(topicId).delete()
