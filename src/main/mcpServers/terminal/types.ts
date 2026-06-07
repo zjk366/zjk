@@ -50,21 +50,33 @@ function isPathUnderProtected(targetPath: string): boolean {
 
 /** 从命令中提取文件路径参数（简易解析） */
 const FILE_CMD_PATTERNS = [
-  // Windows cmd
+  // Windows cmd 删除
   /^(?:del|erase|rd|rmdir)\s+(.+?)(?:\s*\/[a-z]\s*)?$/im,
+  // Windows cmd 复制/移动
   /^(?:copy|xcopy|robocopy)\s+("(?:[^"]+)"\s+"(?:[^"]+)")/im,
   /^(?:move|ren|rename)\s+("(?:[^"]+)"\s+"(?:[^"]+)")/im,
-  // Unix
+  // Windows cmd 读取
+  /^(?:type|more)\s+(.+)$/im,
+  // Unix 删除
   /^rm\s+(?:-[rf]+\s+)?(.+)$/im,
   /^rmdir\s+(.+)$/im,
+  // Unix 复制/移动
   /^cp\s+(?:-[a-z]+\s+)?("(?:[^"]+)"\s+"(?:[^"]+)")/im,
   /^mv\s+(?:-[a-z]+\s+)?("(?:[^"]+)"\s+"(?:[^"]+)")/im,
-  // PowerShell: Remove-Item (支持 -Path 和 -LiteralPath 参数)
+  // Unix 读取
+  /^cat\s+(.+)$/im,
+  /^(?:head|tail|less|more)\s+(.+)$/im,
+  // PowerShell 删除
   /^remove-item\s+(?:-(?:path|literalpath)\s+)?(.+?)(?:\s+-|\||$)/im,
   /^ri\s+(?:-(?:path|literalpath)\s+)?(.+?)(?:\s+-|\||$)/im,
+  // PowerShell 复制/移动
   /^move-item\s+(?:-path\s+)?(.+?)(\s+-destination\s+.+?)?(?:\s+-|\||$)/im,
   /^copy-item\s+(?:-path\s+)?(.+?)(\s+-destination\s+.+?)?(?:\s+-|\||$)/im,
   /^rename-item\s+(?:-path\s+)?(.+?)(?:\s+-|\||$)/im,
+  // PowerShell 读取
+  /^get-content\s+(?:-path\s+)?(.+?)(?:\s+-|\||$)/im,
+  /^gc\s+(.+?)(?:\s+-|\||$)/im,
+  /^cat\s+(.+?)(?:\s+-|\||$)/im,
 ]
 
 /**

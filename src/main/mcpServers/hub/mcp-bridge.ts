@@ -51,13 +51,28 @@ function normalizeWinPath(p: string): string {
   return s
 }
 
+/** 从字符串中提取所有 Windows 路径（形如 C:\xxx） */
+function extractPaths(text: string): string[] {
+  const paths: string[] = []
+  // 匹配所有 [A-Z]:\ 开头的路径（可能带引号）
+  const re = /['"]?([a-zA-Z]:\\(?:[^'"\s]+\\)*[^'"\s]*)/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(text)) !== null) {
+    const p = normalizeWinPath(m[1])
+    if (p.length > 3) paths.push(p)
+  }
+  return paths
+}
+
 /** 递归扫描参数对象中所有字符串值是否为受保护路径 */
 function scanArgsForProtectedPaths(args: unknown, depth = 0): string[] {
   const found: string[] = []
   if (!args || depth > 3) return found
   if (typeof args === 'string') {
-    if (args.length > 3 && /^[a-zA-Z]:\\/.test(normalizeWinPath(args))) {
-      if (isProtectedPath(normalizeWinPath(args))) found.push(args)
+    // 从命令字符串中提取所有 Windows 路径
+    const cmdPaths = extractPaths(args)
+    for (const p of cmdPaths) {
+      if (isProtectedPath(p)) found.push(args)
     }
     return found
   }
