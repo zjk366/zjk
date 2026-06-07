@@ -11,7 +11,7 @@ import os from 'node:os'
 import path from 'node:path'
 import * as z from 'zod'
 
-import { DEFAULT_TIMEOUT_MS, getCommandSummary, isDangerousCommand, logger, MAX_OUTPUT_LENGTH } from '../types'
+import { checkProtectedFileOperation, DEFAULT_TIMEOUT_MS, getCommandSummary, isDangerousCommand, logger, MAX_OUTPUT_LENGTH } from '../types'
 
 const ExecuteSchema = z.object({
   command: z.string().describe('要执行的命令'),
@@ -70,6 +70,26 @@ export async function handleExecuteTool(args: unknown) {
         content: [{ type: 'text', text: `用户拒绝了危险命令: ${command}` }],
         isError: true
       }
+    }
+  }
+
+  // ── 检查是否操作受保护的系统路径 ─────────────────────
+  const protectedFiles = checkProtectedFileOperation(command)
+  if (protectedFiles.length > 0) {
+    const pathsStr = protectedFiles.join('\n')
+    await dialog.showMessageBox({
+      type: 'warning',
+      title: '⚠️ 禁止操作系统保护路径',
+      message: `AI 试图操作受系统保护的文件/目录`,
+      detail: `以下路径受系统保护，禁止 AI 修改：\n${pathsStr}\n\n命令: ${command}`,
+      buttons: ['我知道了，取消执行'],
+      defaultId: 0,
+      cancelId: 0,
+    })
+    logger.info('Protected file operation rejected', { command, paths: protectedFiles })
+    return {
+      content: [{ type: 'text', text: `错误：无法操作受系统保护的路径：\n${pathsStr}\n\n此路径受系统保护，禁止 AI 修改。` }],
+      isError: true
     }
   }
 

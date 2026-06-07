@@ -104,12 +104,18 @@ const SYSTEM_PROTECTED_DIRS: string[] = [
 
 /** 检查路径是否受系统保护 */
 export function isSystemProtectedPath(targetPath: string): boolean {
-  const resolved = path.resolve(targetPath).toLowerCase()
+  const resolved = path.resolve(targetPath)
+  const normalizedTarget = normalizeForComparison(resolved)
   // 拒绝根目录本身（防止对整个 C:\ 操作）
-  if (/^[a-z]:\\?$/.test(resolved)) return true
+  if (/^[a-z]:\\?$/.test(normalizedTarget)) return true
   for (const dir of SYSTEM_PROTECTED_DIRS) {
     if (!dir) continue
-    if (resolved === dir || resolved.startsWith(dir + path.sep)) return true
+    const normalizedDir = normalizeForComparison(dir)
+    if (normalizedTarget === normalizedDir) return true
+    const relative = path.relative(normalizedDir, normalizedTarget)
+    if (relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative)) {
+      return true
+    }
   }
   return false
 }
