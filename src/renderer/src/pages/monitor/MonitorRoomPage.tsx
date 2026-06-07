@@ -14,6 +14,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import styled from 'styled-components'
 import { EventEmitter } from '@renderer/services/EventService'
+import ScreenMonitor from '@renderer/components/ScreenMonitor'
 import type { MonitorLogEntry, ScreenContent } from '@renderer/types/monitor'
 import MonitorService, { MONITOR_EVENTS } from '@renderer/services/MonitorService'
 
@@ -38,6 +39,7 @@ const MonitorRoomPage: FC = () => {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const [logs, setLogs] = useState<MonitorLogEntry[]>([])
+  const [terminalLines, setTerminalLines] = useState<string[]>([])
   const [screen, setScreen] = useState<ScreenContent>({ type: 'idle' })
   const [skills, setSkills] = useState<{ name: string; status: 'active' | 'idle' | 'error' }[]>([])
   const [skillsLoaded, setSkillsLoaded] = useState(false)
@@ -83,7 +85,16 @@ const MonitorRoomPage: FC = () => {
     const onLogAdded = (entry: MonitorLogEntry) => setLogs((prev) => [...prev, entry])
     const onLogRetro = (entry: MonitorLogEntry) => setLogs((prev) => prev.map((l) => (l.id === entry.id ? entry : l)))
     const onRetroAll = () => setLogs((prev) => prev.map((l) => (l.status === 'ok' ? { ...l, status: 'retro' as const } : l)))
-    const onScreenUpdate = (content: ScreenContent) => setScreen(content)
+    const onScreenUpdate = (content: ScreenContent) => {
+      setScreen(content)
+      // 从终端输出中提取文本行给 ScreenMonitor
+      if (content.type === 'terminal') {
+        setTerminalLines((prev) => {
+          const newLines = content.output.map((o) => o.text)
+          return [...prev, ...newLines].slice(-500)
+        })
+      }
+    }
 
     const off1 = EventEmitter.on(MONITOR_EVENTS.LOG_ADDED as any, onLogAdded)
     const off2 = EventEmitter.on(MONITOR_EVENTS.LOG_RETRO as any, onLogRetro)
@@ -158,52 +169,9 @@ const MonitorRoomPage: FC = () => {
       <MainArea>
         {/* ===== 左侧区域 ===== */}
         <LeftColumn>
-          {/* 左上：实时屏幕 */}
-          <ScreenPanel>
-            <ScreenHeader>{t('monitor.screenLive')}</ScreenHeader>
-            <ScreenBody ref={screenRef}>
-              {screen.type === 'idle' && (
-                <ScreenPlaceholder>
-                  <ScreenGlow />
-                  <ScreenText>{t('monitor.screenWaiting')}</ScreenText>
-                </ScreenPlaceholder>
-              )}
-
-              {screen.type === 'terminal' && (
-                <TerminalView>
-                  <TermHeader>{screen.command}</TermHeader>
-                  {screen.output.map((line, i) => (
-                    <TermLine key={i} $stderr={line.stream === 'stderr'}>
-                      {line.text}
-                    </TermLine>
-                  ))}
-                  <TermCursor />
-                  <div ref={termEndRef} />
-                </TerminalView>
-              )}
-
-              {screen.type === 'browser' && (
-                <BrowserView>
-                  <BrowserHeader>{screen.url}</BrowserHeader>
-                  <BrowserImg
-                    src={`data:image/png;base64,${screen.image}`}
-                    alt={screen.url}
-                  />
-                </BrowserView>
-              )}
-
-              {screen.type === 'desktop' && (
-                <DesktopFrame>
-                  <img src={screen.dataUrl} alt="desktop" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-                </DesktopFrame>
-              )}
-
-              {screen.type === 'message' && (
-                <ScreenPlaceholder>
-                  <ScreenText>{screen.text}</ScreenText>
-                </ScreenPlaceholder>
-              )}
-            </ScreenBody>
+          {/* 左上：实时屏幕（ScreenMonitor 组件） */}
+          <ScreenPanel style={{ flex: 3, minHeight: 0 }}>
+            <ScreenMonitor terminalLines={terminalLines} defaultFps={2} />
           </ScreenPanel>
 
           {/* 左下：当前任务上下文面板 */}
