@@ -182,6 +182,14 @@ if (!app.requestSingleInstanceLock()) {
 
     const mainWindow = windowService.createMainWindow()
 
+    // 初始化桌面实时截屏模块（start/stop 由渲染进程通过 IPC 控制）
+    try {
+      const { initScreenMonitor } = await import('./screenMonitor')
+      initScreenMonitor(mainWindow)
+    } catch (err) {
+      logger.error('Failed to init ScreenMonitor', err as Error)
+    }
+
     new TrayService()
 
     // Setup macOS application menu

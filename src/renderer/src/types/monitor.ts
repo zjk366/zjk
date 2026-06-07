@@ -16,6 +16,7 @@ export type MonitorLogStatus = 'ok' | 'blocked' | 'retro'
 /** 实时屏幕内容 */
 export type ScreenContent =
   | { type: 'idle' }                                          // 空闲壁纸
+  | { type: 'desktop'; dataUrl: string; timestamp: number }   // 桌面实时画面
   | { type: 'terminal'; command: string; output: TermLine[] }  // 终端执行
   | { type: 'browser'; image: string; url: string }            // 浏览器截图(base64)
   | { type: 'message'; text: string }                          // 纯文本消息
