@@ -1,31 +1,72 @@
 /**
  * 监控室（MonitorRoom）
  *
- * 排版：
- * ┌─────────────────────────────┬──────────────────────────┐
- * │  左上：实时监控屏幕           │  右侧：操作日志            │
- * │  (AI 操作实时推流)           │  (记录 + 回溯 + 强制停止)  │
- * │                             │                          │
- * ├─────────────────────────────┤                          │
- * │  左下：当前任务上下文面板     │                          │
- * │  - Skill 卡片               │                          │
- * │  - 文件网格                 │                          │
- * │  - 仪表盘占位               │                          │
- * └─────────────────────────────┴──────────────────────────┘
- *
- * 术语体系：回溯（retrograde）用于描述 AI 操作的撤销/回滚。
- *
- * ——— Step 1: 纯静态 UI 布局，不含真实数据绑定 ———
+ * Step 2: 操作日志接入实时 IPC 订阅。
+ * - 日志数据通过 MonitorService 获取
+ * - 新增日志、回溯、停止均通过 EventEmitter 通信
+ * - Skill 卡片和文件网格仍为静态占位（Step 3 实现）
  */
+import { ArrowLeft } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { FC } from 'react'
-import { useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import styled from 'styled-components'
+import { EventEmitter } from '@renderer/services/EventService'
+import type { MonitorLogEntry } from '@renderer/types/monitor'
+import MonitorService, { MONITOR_EVENTS } from '@renderer/services/MonitorService'
 
 const MonitorRoomPage: FC = () => {
   const { t } = useTranslation()
+  const navigate = useNavigate()
+  const [logs, setLogs] = useState<MonitorLogEntry[]>([])
+  const serviceRef = useRef(MonitorService.getInstance())
 
-  // 静态占位数据（Step 1: 纯 UI，无真实绑定）
+  // 初始化监控服务 + 订阅日志事件
+  useEffect(() => {
+    const svc = serviceRef.current
+    svc.init()
+
+    // 加载已有日志
+    setLogs(svc.getAll())
+
+    // 订阅新日志
+    const onLogAdded = (entry: MonitorLogEntry) => {
+      setLogs((prev) => [...prev, entry])
+    }
+    const onLogRetro = (entry: MonitorLogEntry) => {
+      setLogs((prev) => prev.map((l) => (l.id === entry.id ? entry : l)))
+    }
+    const onRetroAll = () => {
+      setLogs((prev) => prev.map((l) => (l.status === 'ok' ? { ...l, status: 'retro' as const } : l)))
+    }
+
+    const off1 = EventEmitter.on(MONITOR_EVENTS.LOG_ADDED as any, onLogAdded)
+    const off2 = EventEmitter.on(MONITOR_EVENTS.LOG_RETRO as any, onLogRetro)
+    const off3 = EventEmitter.on(MONITOR_EVENTS.LOG_RETRO_ALL as any, onRetroAll)
+
+    return () => {
+      ;(async () => {
+        const u1 = await off1; const u2 = await off2; const u3 = await off3
+        u1?.(); u2?.(); u3?.()
+      })()
+    }
+  }, [])
+
+  // 处理回溯
+  const handleRetroAll = useCallback(() => {
+    serviceRef.current.retroAll()
+  }, [])
+
+  const handleRetroOne = useCallback((logId: string) => {
+    serviceRef.current.retroLog(logId)
+  }, [])
+
+  const handleStop = useCallback(() => {
+    serviceRef.current.stopCurrent()
+  }, [])
+
+  // 静态占位数据（Step 3 实现）
   const staticSkills = useMemo<{ name: string; status: 'active' | 'idle' | 'error' }[]>(
     () => [
       { name: '@cherry/filesystem', status: 'active' },
@@ -44,21 +85,13 @@ const MonitorRoomPage: FC = () => {
     [],
   )
 
-  const staticLogs = useMemo<{ time: string; action: string; status: 'ok' | 'blocked' | 'retro' }[]>(
-    () => [
-      { time: '14:32:15', action: '读取 C:\\Users\\...\\config.json', status: 'ok' },
-      { time: '14:31:50', action: '执行终端命令: del temp.txt', status: 'blocked' },
-      { time: '14:30:22', action: '写入 D:\\project\\output.txt', status: 'ok' },
-      { time: '14:29:08', action: '读取 C:\\Windows\\System32\\...', status: 'blocked' },
-      { time: '14:28:44', action: '创建文件 D:\\backup\\data.json', status: 'ok' },
-    ],
-    [],
-  )
-
   return (
     <PageContainer>
       {/* ─── 顶部标题栏 ─────────────────────────────── */}
       <HeaderBar>
+        <BackButton onClick={() => navigate('/')} title="返回">
+          <ArrowLeft size={18} />
+        </BackButton>
         <HeaderTitle>
           <RadarIcon viewBox="0 0 24 24" width="20" height="20">
             <circle cx="12" cy="12" r="2.5" />
@@ -160,14 +193,14 @@ const MonitorRoomPage: FC = () => {
             <LogHeader>
               <span>{t('monitor.operationLog')}</span>
               <LogActions>
-                <RetroButton disabled title={t('monitor.retroDisabledHint')}>
-                  <RetroIcon viewBox="0 0 24 24" width="14" height="14">
+                <TopRetroBtn onClick={handleRetroAll} title="回溯到最初">
+                  <RetroIcon viewBox="0 0 24 24" width="13" height="13">
                     <path d="M3 12a9 9 0 1 0 9-9" strokeWidth="2" fill="none" />
                     <polyline points="3 3 3 9 9 9" strokeWidth="2" fill="none" />
                   </RetroIcon>
                   回溯
-                </RetroButton>
-                <StopButton disabled title={t('monitor.stopDisabledHint')}>
+                </TopRetroBtn>
+                <StopButton onClick={handleStop} title={t('monitor.stopDisabledHint')}>
                   <StopIcon viewBox="0 0 24 24" width="14" height="14">
                     <rect x="6" y="6" width="12" height="12" rx="1" fill="currentColor" />
                   </StopIcon>
@@ -177,15 +210,29 @@ const MonitorRoomPage: FC = () => {
             </LogHeader>
 
             <LogList>
-              {staticLogs.map((log, i) => (
-                <LogEntry key={i} $status={log.status}>
+              {logs.length === 0 && (
+                <LogEnd>暂无操作记录</LogEnd>
+              )}
+              {logs.map((log) => (
+                <LogEntry key={log.id} $status={log.status}>
                   <LogTime>{log.time}</LogTime>
                   <LogAction>{log.action}</LogAction>
-                  <LogStatusBadge $status={log.status}>
-                    {log.status === 'ok' ? '通过' : log.status === 'blocked' ? '阻止' : '回溯'}
-                  </LogStatusBadge>
+                  <LogRight>
+                    <LogStatusBadge $status={log.status}>
+                      {log.status === 'ok' ? '通过' : log.status === 'blocked' ? '阻止' : '已回溯'}
+                    </LogStatusBadge>
+                    {log.status === 'ok' && (
+                      <EntryRetroBtn title="回溯此操作" onClick={() => handleRetroOne(log.id)}>
+                        <RetroIcon viewBox="0 0 24 24" width="11" height="11">
+                          <path d="M3 12a9 9 0 1 0 9-9" strokeWidth="2" fill="none" />
+                          <polyline points="3 3 3 9 9 9" strokeWidth="2" fill="none" />
+                        </RetroIcon>
+                      </EntryRetroBtn>
+                    )}
+                  </LogRight>
                 </LogEntry>
               ))}
+              {logs.length > 0 && <LogEnd>— 日志结束 —</LogEnd>}
             </LogList>
           </LogPanel>
         </RightColumn>
@@ -202,6 +249,7 @@ const PageContainer = styled.div`
   display: flex;
   flex-direction: column;
   height: 100%;
+  flex: 1;
   background: var(--color-background, #0a0e1a);
   color: var(--color-text, #e8ecf4);
   overflow: hidden;
@@ -212,8 +260,7 @@ const PageContainer = styled.div`
 const HeaderBar = styled.div`
   display: flex;
   align-items: center;
-  padding: 12px 20px;
-  border-bottom: 0.5px solid var(--color-border, rgba(255,255,255,0.06));
+  padding: 20px 20px 12px;
   flex-shrink: 0;
 `
 
@@ -237,9 +284,27 @@ const MainArea = styled.div`
   display: flex;
   flex: 1;
   overflow: hidden;
+  height: 100%;
 `
 
 // ─── 左列 ────────────────────────────────────────────
+
+const BackButton = styled.button`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: var(--color-text);
+  cursor: pointer;
+  flex-shrink: 0;
+  &:hover {
+    background: var(--color-background-soft);
+  }
+`
 
 const LeftColumn = styled.div`
   display: flex;
@@ -248,6 +313,7 @@ const LeftColumn = styled.div`
   gap: 8px;
   padding: 8px;
   min-width: 0;
+  width: 60%;
 `
 
 // ─── 左上：屏幕面板 ────────────────────────────────────
@@ -257,8 +323,7 @@ const ScreenPanel = styled.div`
   flex-direction: column;
   flex: 3;
   border-radius: 10px;
-  border: 0.5px solid var(--color-border, rgba(255,255,255,0.08));
-  background: var(--color-background-soft, rgba(255,255,255,0.02));
+  background: rgba(255,255,255,0.03);
   overflow: hidden;
   min-height: 200px;
 `
@@ -268,7 +333,6 @@ const ScreenHeader = styled.div`
   font-size: 11px;
   font-weight: 500;
   color: var(--color-text-3, #8892b0);
-  border-bottom: 0.5px solid var(--color-border, rgba(255,255,255,0.06));
   text-transform: uppercase;
   letter-spacing: 0.5px;
 `
@@ -313,8 +377,7 @@ const TaskContextPanel = styled.div`
   flex-direction: column;
   flex: 2;
   border-radius: 10px;
-  border: 0.5px solid var(--color-border, rgba(255,255,255,0.08));
-  background: var(--color-background-soft, rgba(255,255,255,0.02));
+  background: rgba(255,255,255,0.02);
   overflow-y: auto;
   padding: 0 12px 8px;
   min-height: 140px;
@@ -327,7 +390,6 @@ const PanelHeader = styled.div`
   color: var(--color-text-3, #8892b0);
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  border-bottom: 0.5px solid var(--color-border, rgba(255,255,255,0.06));
   margin-bottom: 8px;
   flex-shrink: 0;
 `
@@ -471,19 +533,21 @@ const DashLabel = styled.span`
 // ─── 右列：日志 ───────────────────────────────────────
 
 const RightColumn = styled.div`
-  width: 320px;
+  width: 40%;
+  min-width: 300px;
   flex-shrink: 0;
   padding: 8px 8px 8px 0;
   display: flex;
+  align-self: stretch;
 `
 
 const LogPanel = styled.div`
   display: flex;
   flex-direction: column;
   flex: 1;
+  height: 100%;
   border-radius: 10px;
-  border: 0.5px solid var(--color-border, rgba(255,255,255,0.08));
-  background: var(--color-background-soft, rgba(255,255,255,0.02));
+  background: rgba(0,0,0,0.12);
   overflow: hidden;
 `
 
@@ -495,7 +559,6 @@ const LogHeader = styled.div`
   font-size: 11px;
   font-weight: 500;
   color: var(--color-text-3, #8892b0);
-  border-bottom: 0.5px solid var(--color-border, rgba(255,255,255,0.06));
   text-transform: uppercase;
   letter-spacing: 0.5px;
   flex-shrink: 0;
@@ -506,7 +569,12 @@ const LogActions = styled.div`
   gap: 4px;
 `
 
-const RetroButton = styled.button`
+const RetroIcon = styled.svg`
+  stroke: currentColor;
+  fill: none;
+`
+
+const TopRetroBtn = styled.button`
   display: flex;
   align-items: center;
   gap: 4px;
@@ -514,19 +582,12 @@ const RetroButton = styled.button`
   border-radius: 4px;
   border: none;
   font-size: 11px;
-  cursor: ${(p) => (p.disabled ? 'not-allowed' : 'pointer')};
-  opacity: ${(p) => (p.disabled ? 0.35 : 1)};
+  cursor: pointer;
   background: rgba(250,173,20,0.12);
   color: #faad14;
-
-  &:not(:disabled):hover {
+  &:hover {
     background: rgba(250,173,20,0.22);
   }
-`
-
-const RetroIcon = styled.svg`
-  stroke: currentColor;
-  fill: none;
 `
 
 const StopButton = styled.button`
@@ -557,21 +618,20 @@ const LogList = styled.div`
   flex: 1;
   overflow-y: auto;
   padding: 4px 0;
+  background: rgba(0,0,0,0.08);
 
   &::-webkit-scrollbar { width: 3px; }
   &::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 2px; }
 `
 
 const LogEntry = styled.div<{ $status: 'ok' | 'blocked' | 'retro' }>`
-  display: flex;
+  display: grid;
+  grid-template-columns: 60px 1fr auto 28px;
   align-items: center;
-  gap: 6px;
-  padding: 5px 12px;
+  gap: 8px;
+  padding: 6px 12px;
   font-size: 11px;
   font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
-  border-left: 2px solid
-    ${(p) =>
-      p.$status === 'ok' ? 'rgba(82,196,26,0.5)' : p.$status === 'blocked' ? 'rgba(255,77,79,0.5)' : 'rgba(250,173,20,0.5)'};
   background: ${(p) =>
     p.$status === 'retro' ? 'rgba(250,173,20,0.04)' : 'transparent'};
 
@@ -580,31 +640,71 @@ const LogEntry = styled.div<{ $status: 'ok' | 'blocked' | 'retro' }>`
   }
 `
 
+const LogRight = styled.div`
+  display: contents;
+`
+
 const LogTime = styled.span`
   color: var(--color-text-3, #555);
   flex-shrink: 0;
-  width: 52px;
+  width: 60px;
 `
 
 const LogAction = styled.span`
-  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--color-text, #e8ecf4);
 `
 
+const EntryRetroBtn = styled.button`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-3, #8892b0);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+  stroke: currentColor;
+  fill: none;
+  justify-self: center;
+
+  ${LogEntry}:hover & {
+    opacity: 0.7;
+  }
+  &:hover {
+    opacity: 1 !important;
+    background: rgba(250,173,20,0.15);
+    color: #faad14;
+  }
+`
+
+const LogEnd = styled.div`
+  text-align: center;
+  padding: 12px;
+  font-size: 10px;
+  color: var(--color-text-3, #555);
+  letter-spacing: 1px;
+`
+
 const LogStatusBadge = styled.span<{ $status: 'ok' | 'blocked' | 'retro' }>`
   font-size: 10px;
-  padding: 1px 5px;
+  padding: 1px 6px;
   border-radius: 3px;
-  flex-shrink: 0;
+  font-weight: 500;
+  text-align: center;
+  min-width: 48px;
   background: ${(p) =>
     p.$status === 'ok'
       ? 'rgba(82,196,26,0.12)'
       : p.$status === 'blocked'
         ? 'rgba(255,77,79,0.12)'
-        : 'rgba(250,173,20,0.12)'};
+        : 'rgba(250,173,20,0.15)'};
   color: ${(p) =>
     p.$status === 'ok' ? '#52c41a' : p.$status === 'blocked' ? '#ff4d4f' : '#faad14'};
 `

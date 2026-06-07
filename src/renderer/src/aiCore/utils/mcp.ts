@@ -3,6 +3,7 @@ import store from '@renderer/store'
 import type { MCPCallToolResponse, MCPTool, MCPToolResponse } from '@renderer/types'
 import { FILE_TYPE } from '@renderer/types'
 import { callMCPTool, getMcpServerByTool, isToolAutoApproved } from '@renderer/utils/mcp-tools'
+import MonitorService from '@renderer/services/MonitorService'
 import {
   confirmSameNameTools,
   requestToolConfirmation,
@@ -326,6 +327,26 @@ export function convertMcpToolsToAiSdkTools(mcpTools: MCPTool[], allowedTools?: 
             if (savedFileCount > 0) parts.push(`${savedFileCount} 个文件`)
             window.toast?.success?.(`已保存 ${parts.join('，')} 到文件库`)
           }
+        }
+
+        // 记录到监控室日志
+        if (!result.isError) {
+          try {
+            const svc = MonitorService.getInstance()
+            const toolName = mcpTool.name
+            let desc = toolName
+            if (toolName === 'execute_command') {
+              const cmd = (params as any)?.command || ''
+              desc = `终端命令: ${cmd.slice(0, 80)}`
+            } else if (toolName.includes('read')) {
+              desc = `读取 ${(params as any)?.file_path || (params as any)?.path || ''}`
+            } else if (toolName.includes('write') || toolName.includes('edit')) {
+              desc = `写入 ${(params as any)?.file_path || (params as any)?.path || ''}`
+            } else if (toolName.includes('delete')) {
+              desc = `删除 ${(params as any)?.path || (params as any)?.file_path || ''}`
+            }
+            svc.addLog(desc.slice(0, 120), 'ok', { source: mcpTool.serverName })
+          } catch { /* 监控日志不影响主流程 */ }
         }
 
         // 返回工具执行结果
