@@ -3,16 +3,12 @@
  */
 import { loggerService } from '@logger'
 import mcpService from '@main/services/MCPService'
-import { windowService } from '@main/services/WindowService'
 import type { MCPCallToolResponse, MCPTool, MCPToolResultContent } from '@types'
-import { IpcChannel } from '@shared/IpcChannel'
 
+import { fileVault } from '../services/FileVault'
 import { buildToolNameMapping, resolveToolId, type ToolIdentity, type ToolNameMapping } from './toolname'
 
 const logger = loggerService.withContext('HubBridge')
-
-// 延迟加载，避免循环引用
-const getSetFileRefPath = () => require('@main/services/VfsProtocol').setFileRefPath as (id: string, p: string) => void
 
 export const listAllTools = () => mcpService.listAllActiveServerTools()
 
@@ -120,80 +116,36 @@ export const callMcpTool = async (nameOrId: string, params: unknown, callId?: st
   const result = await mcpService.callToolById(toolId, params, callId)
   throwIfToolError(result)
 
-  // 保存图片并返回路径给 AI
+  // 保存图片到 FileVault（持久化文件库）
   if (result?.content) {
     const imageItems = result.content.filter((c: any) => c.type === 'image' && c.data)
     if (imageItems.length > 0) {
-      const fs = require('node:fs')
-      const p = require('node:path')
-      const { app } = require('electron')
-      const savedPaths: string[] = []
+      const refs: string[] = []
       for (const img of imageItems) {
         try {
-          const raw = img.data.startsWith('data:') ? img.data.split(',')[1] : img.data
-          const ext = img.mimeType === 'image/jpeg' ? 'jpeg' : 'png'
-          const dateStr = new Date().toISOString().slice(0, 7)
-
-          // 尝试读取文件库路径配置
-          let libBase = ''
-          try {
-            const configPath = p.join(app.getPath('userData'), 'filelib_config.json')
-            if (fs.existsSync(configPath)) {
-              libBase = JSON.parse(fs.readFileSync(configPath, 'utf-8')).path || ''
-            }
-          } catch { /* 没有配置则用默认路径 */ }
-
-          if (libBase) {
-            // 直接保存到文件库
-            const dir = `${libBase.replace(/\\/g, '/')}/images/${dateStr}`
-            if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-            const name = `screenshot_${Date.now()}.${ext}`
-            const filePath = `${dir}/${name}`
-            // 解码 base64 并写入二进制
-            fs.writeFileSync(filePath, Buffer.from(raw, 'base64'))
-            savedPaths.push(filePath)
-            logger.info(`Saved screenshot to filelib: ${filePath}`)
-          } else {
-            // 保存到默认缓存目录
-            const dir = p.join(app.getPath('userData'), 'filelib_cache', 'images', dateStr)
-            if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-            const name = `screenshot_${Date.now()}.${ext}`
-            const filePath = p.join(dir, name).replace(/\\/g, '/')
-            fs.writeFileSync(filePath, Buffer.from(raw, 'base64'))
-            savedPaths.push(filePath)
-            logger.info(`Saved screenshot to cache: ${filePath}`)
-          }
+          const ext = img.mimeType?.split('/')[1] || 'png'
+          const name = `screenshot_${Date.now()}.${ext}`
+          const uri = fileVault.saveFromBase64(img.data, name)
+          refs.push(uri)
+          logger.info(`Image saved to vault: ${uri}`)
         } catch (e) {
           logger.error('Failed to save image:', e)
         }
       }
 
-      if (savedPaths.length > 0) {
-        // 生成文件 ID 并通知渲染进程
-        const fileIds: string[] = []
-        for (const fp of savedPaths) {
-          const fileId = `img_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`
-          fileIds.push(fileId)
-          // 维护文件 ID → 路径映射（存到内存或 IPC）
-          try { getSetFileRefPath()(fileId, fp) } catch { /* ok */ }
-        }
-        // 通知渲染进程
-        try {
-          const win = windowService.getMainWindow()
-          if (win && !win.isDestroyed()) {
-            win.webContents.send(IpcChannel.Skill_Updated, { command: 'hub-image-saved', images: savedPaths })
-          }
-        } catch { /* ok */ }
-        // 将图片路径作为 resource 加入结果，渲染进程据此显示图片
-        const imgRefs = savedPaths.map((fp) => ({
-          type: 'resource' as const,
-          resource: { uri: `file://${fp.replace(/\\/g, '/')}`, mimeType: 'image/png' }
-        }))
-        const textSummary = `[System: VFS URI: cs-vfs://${fileIds[0]}。摘要: 页面快照]`
-        // 保留原始图片数据 + 添加 resource 文件引用 + 文字摘要
-        // 原始 image 数据保留后，渲染进程的 extractImagesFromToolOutput 能提取并展示到聊天
+      if (refs.length > 0) {
+        // 保留原始图片数据（供渲染进程的 extractImagesFromToolOutput 使用）
         const originalContent = result.content || []
-        result.content = [...originalContent, ...imgRefs, { type: 'text', text: textSummary }]
+        result.content = [
+          ...originalContent,
+          // 添加 attachment:// 引用，渲染层通过自定义协议加载
+          ...refs.map((uri) => ({
+            type: 'resource' as const,
+            resource: { uri, mimeType: 'image/png' }
+          })),
+          // 文本摘要：AI 据此构造 Markdown 图片引用
+          { type: 'text', text: `[System: File saved to vault. Reference: ${refs[0]}]` }
+        ]
         return result
       }
     }

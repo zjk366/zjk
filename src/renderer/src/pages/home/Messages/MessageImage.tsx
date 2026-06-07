@@ -26,7 +26,7 @@ const logger = loggerService.withContext('MessageImage')
 function useResolvedSrc(src: string): string {
   const [resolved, setResolved] = useState(src)
   useEffect(() => {
-    if (!src.startsWith('cs-vfs://') && !src.startsWith('file://') && !src.startsWith('cherry-studio://')) {
+    if (!src.startsWith('cs-vfs://') && !src.startsWith('file://') && !src.startsWith('cherry-studio://') && !src.startsWith('attachment://')) {
       setResolved(src)
       return
     }

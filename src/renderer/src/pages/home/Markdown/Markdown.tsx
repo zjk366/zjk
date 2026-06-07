@@ -155,12 +155,14 @@ const Markdown: FC<Props> = ({ block, postProcess }) => {
       /\{\{FILE_REF:([^}]+)\}\}/g,
       (_, fileId) => `<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;margin:8px 0;border-radius:8px;border:0.5px solid var(--color-border);background:var(--color-background-soft)"><img src="cs-vfs://${fileId}" alt="file" style="width:60px;height:60px;object-fit:cover;border-radius:6px;background:var(--color-background-mute)" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2260%22><rect fill=%22%23eee%22 width=%2260%22 height=%2260%22/><text x=%2250%%22 y=%2250%%22 text-anchor=%22middle%22 dy=%22.3em%22 font-size=%2224%22 fill=%22%23999%22>📄</text></svg>'"/><div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600;color:var(--color-text)">文件库资源</div><div style="font-size:11px;color:var(--color-text-3)">${fileId}</div></div><span style="font-size:11px;color:var(--color-primary);white-space:nowrap">查看 →</span></div>`
     )
-    // 修复 AI 输出的裸 fileId 图片链接：![alt](img_xxx) → ![alt](cs-vfs://img_xxx)
-    .replace(/!\[([^\]]*)\]\(([a-zA-Z0-9_]+)\)/g, '![$1](cs-vfs://$2)')
+    // 修复 AI 输出的裸 fileId 图片链接：![alt](img_xxx) → ![alt](attachment://img_xxx)
+    .replace(/!\[([^\]]*)\]\(([a-zA-Z0-9_]+)\)/g, '![$1](attachment://$2)')
+    // 前端兼容：旧会话的 cs-vfs:// 自动转为 attachment://
+    .replace(/cs-vfs:\/\//g, 'attachment://')
 
   const urlTransform = useCallback((value: string) => {
     if (value.startsWith('data:image/')) return value
-    if (value.startsWith('file://') || value.startsWith('cherry-studio://') || value.startsWith('cs-vfs://')) return value
+    if (value.startsWith('file://') || value.startsWith('cherry-studio://') || value.startsWith('cs-vfs://') || value.startsWith('attachment://')) return value
     return defaultUrlTransform(value)
   }, [])
 

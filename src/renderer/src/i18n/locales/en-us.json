@@ -5868,6 +5868,13 @@
       },
       "title": "Use System Title Bar (Linux)"
     },
+    "vault": {
+      "changeDir": "Change Directory",
+      "empty": "Vault is empty",
+      "files": "Files",
+      "rootDir": "Current Directory",
+      "title": "File Vault"
+    },
     "zoom": {
       "reset": "Reset",
       "title": "Page Zoom"

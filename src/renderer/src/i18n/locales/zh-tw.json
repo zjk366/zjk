@@ -5864,6 +5864,13 @@
       },
       "title": "使用系統標題列（Linux）"
     },
+    "vault": {
+      "changeDir": "更改目錄",
+      "empty": "檔案庫為空",
+      "files": "檔案列表",
+      "rootDir": "目前目錄",
+      "title": "檔案庫"
+    },
     "zoom": {
       "reset": "重設",
       "title": "縮放"

@@ -458,5 +458,11 @@ export enum IpcChannel {
 
   // Portal (blackhole login callback server)
   Portal_StartServer = 'portal:start-server',
-  Portal_ApiKey = 'portal:api-key'
+  Portal_ApiKey = 'portal:api-key',
+
+  // FileVault
+  Vault_ListFiles = 'vault:list-files',
+  Vault_SelectDirectory = 'vault:select-directory',
+  Vault_SetRoot = 'vault:set-root',
+  Vault_GetRoot = 'vault:get-root'
 }

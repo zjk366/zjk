@@ -139,9 +139,10 @@ if (!app.requestSingleInstanceLock()) {
   // initialization and is ready to create browser windows.
   // Some APIs can only be used after this event occurs.
 
-  // 注册 cs-vfs:// 自定义协议（必须在 app.ready 之前）
+  // 注册自定义协议（必须在 app.ready 之前）
   protocol.registerSchemesAsPrivileged([
-    { scheme: 'cs-vfs', privileges: { supportFetchAPI: true, bypassCSP: true, stream: true } }
+    { scheme: 'cs-vfs', privileges: { supportFetchAPI: true, bypassCSP: true, stream: true } },
+    { scheme: 'attachment', privileges: { supportFetchAPI: true, bypassCSP: false, stream: true } }
   ])
 
   void app.whenReady().then(async () => {
@@ -169,6 +170,14 @@ if (!app.requestSingleInstanceLock()) {
       registerVfsProtocol()
     } catch (err) {
       console.error('Failed to register cs-vfs protocol:', err)
+    }
+
+    // 注册 attachment:// 自定义协议（FileVault 文件库协议）
+    try {
+      const { registerAttachmentProtocol } = await import('./protocols/attachmentProtocol')
+      registerAttachmentProtocol()
+    } catch (err) {
+      console.error('Failed to register attachment protocol:', err)
     }
 
     const mainWindow = windowService.createMainWindow()
@@ -201,6 +210,15 @@ if (!app.requestSingleInstanceLock()) {
     registerShortcuts(mainWindow)
 
     await registerIpc(mainWindow, app)
+
+    // 注册 FileVault IPC 通道
+    try {
+      const { registerVaultIpc } = await import('./ipc/vaultIpc')
+      registerVaultIpc()
+    } catch (err) {
+      console.error('Failed to register vault IPC:', err)
+    }
+
     localTransferService.startDiscovery({ resetList: true })
 
     replaceDevtoolsFont(mainWindow)

@@ -35,7 +35,7 @@ const ImageViewer: React.FC<ImageViewerProps> = ({ src, style, ...props }) => {
 
   // cs-vfs:// 自定义协议无法直接被 AntImage 加载，通过 fetch 转 blob: URL
   useEffect(() => {
-    if (!src.startsWith('cs-vfs://') && !src.startsWith('cherry-studio://')) {
+    if (!src.startsWith('cs-vfs://') && !src.startsWith('cherry-studio://') && !src.startsWith('attachment://')) {
       setDisplaySrc(src)
       return
     }

@@ -5869,6 +5869,13 @@
       },
       "title": "使用系统标题栏 (Linux)"
     },
+    "vault": {
+      "changeDir": "更改目录",
+      "empty": "文件库为空",
+      "files": "文件列表",
+      "rootDir": "当前目录",
+      "title": "文件库"
+    },
     "zoom": {
       "reset": "重置",
       "title": "缩放"
