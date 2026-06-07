@@ -244,38 +244,20 @@ class MemoryBankService {
     const now = new Date().toISOString()
     const expiresAt = new Date(Date.now() + MEMORY_CONFIG.DEFAULT_EXPIRE_DAYS * 24 * 60 * 60 * 1000).toISOString()
 
-    // 始终合并到同一条活跃记忆（按最后更新时间倒序取第一条）
-    // 这样所有对话内容最终汇总为一条综合记忆
-    const existing = (await table.toArray())
-      .filter((m) => !m.isDeleted)
-      .sort((a, b) => new Date(b.lastReferencedAt).getTime() - new Date(a.lastReferencedAt).getTime())[0]
-
-    if (existing) {
-      // 合并摘要：新内容追加到旧摘要前（最新的放前面）
-      const mergedSummary = summary.length > 20
-        ? summary
-        : `${summary}\n${existing.summary}`
-      const mergedKeywords = [...new Set([...keywords, ...existing.keywords])].slice(0, MEMORY_CONFIG.MAX_KEYWORDS)
-      await table.update(existing.id, {
-        summary: mergedSummary,
-        keywords: mergedKeywords,
-        lastReferencedAt: now,
-        expiresAt,
-      })
-    } else {
-      await table.add({
-        id: `mem_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-        topicId, summary, keywords, createdAt: now, lastReferencedAt: now,
-        isDeleted: false, expiresAt, sourceAssistantName: '',
-      })
-    }
+    // 每次保存都是一条新记忆（不合并），按时间倒序排列
+    // 每次软件关闭时生成一条会话总结，多次关闭就有多条记忆
+    await table.add({
+      id: `mem_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      topicId, summary, keywords, createdAt: now, lastReferencedAt: now,
+      isDeleted: false, expiresAt, sourceAssistantName: '',
+    })
 
     // 同步到磁盘（供主进程 MCP 读取）
     this.debounceSyncToDisk()
 
     // 清除所有已总结的原始日志
     await db.table('conversation_logs').clear()
-    logger.info(`Memory saved (global summary)`)
+    logger.info(`Memory saved (session summary)`)
   }
 
   // ---- 本地降级总结 ----
