@@ -1325,7 +1325,7 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
 
   // ── 记忆库 IPC（已注册则跳过，防止 registerIpc 重复调用） ──
   const safeHandle = (channel: string, handler: (...args: any[]) => unknown) => {
-    try { ipcMain.handle(channel, handler as any) } catch { /* 已注册，跳过 */ }
+    try { ipcMain.handle(channel, handler as any) } catch (_e) { /* 已注册，跳过 */ }
   }
 
   const MEMORY_BANK_FILE = path.join(app.getPath('userData'), 'Data', 'memory_bank.json')

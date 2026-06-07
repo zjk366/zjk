@@ -62,10 +62,6 @@ const MonitorRoomPage: FC = () => {
     // 加载 skills
     loadSkills().then((s) => { if (s) setSkills(s); setSkillsLoaded(true) })
 
-    const onLogAdded = (entry: MonitorLogEntry) => setLogs((prev) => [...prev, entry])
-    const onLogRetro = (entry: MonitorLogEntry) => setLogs((prev) => prev.map((l) => (l.id === entry.id ? entry : l)))
-    const onRetroAll = () => setLogs((prev) => prev.map((l) => (l.status === 'ok' ? { ...l, status: 'retro' as const } : l)))
-
     // 初始屏幕状态
     setScreen(serviceRef.current.screen)
 
