@@ -52,9 +52,38 @@ export async function handleExecuteTool(args: unknown) {
   const { command, cwd, timeout, description } = parsed.data
   const workDir = cwd || os.homedir()
 
+  // ── 文件删除操作确认（任何删除命令都需要用户确认）───────
+  const cmdSummary = getCommandSummary(command)
+  if (cmdSummary === '删除文件/目录') {
+    const result = await dialog.showMessageBox({
+      type: 'warning',
+      title: '⚠️ AI 请求删除文件',
+      message: `AI 请求执行删除操作`,
+      detail: `命令: ${command}\n\n删除操作会将文件移入回收站。请确认是否允许 AI 执行此操作。`,
+      buttons: ['取消', '确认删除'],
+      defaultId: 0,
+      cancelId: 0,
+    })
+    if (result.response !== 1) {
+      logger.info('Delete command rejected by user', { command })
+      return {
+        content: [{ type: 'text', text: `用户已取消删除操作: ${command}` }],
+        isError: true
+      }
+    }
+    // 自动替换 del/rm 为移入回收站的操作提示
+    const trashNote = '\n[安全提示: 文件将被移入回收站而非永久删除]'
+    return {
+      content: [{
+        type: 'text',
+        text: `$ ${command}\n\n❌ 为了数据安全，AI 不能直接执行永久删除命令。\n请使用 filesystem 工具来安全删除文件（文件会移入回收站）。${trashNote}`
+      }]
+    }
+  }
+
   // ── 危险命令检查 ──────────────────────────────────
   if (isDangerousCommand(command)) {
-    const summary = description || getCommandSummary(command)
+    const summary = description || cmdSummary
     const result = await dialog.showMessageBox({
       type: 'warning',
       title: '⚠️ AI 请求执行危险命令',

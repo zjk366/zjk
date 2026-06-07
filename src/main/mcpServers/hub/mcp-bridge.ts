@@ -40,13 +40,36 @@ function isProtectedPath(targetPath: string): boolean {
   return false
 }
 
-/** 扫描参数对象中所有字符串值是否为受保护路径 */
-function scanArgsForProtectedPaths(args: unknown): string[] {
+/** 将各种路径格式归一化为标准 Windows 路径 */
+function normalizeWinPath(p: string): string {
+  // 去掉引号
+  let s = p.replace(/['"]/g, '')
+  // 处理 \\?\C:\... 格式 (Windows 长路径)
+  if (s.startsWith('\\\\?\\')) s = s.slice(4)
+  // 替换正斜杠为反斜杠
+  s = s.replace(/\//g, '\\')
+  return s
+}
+
+/** 递归扫描参数对象中所有字符串值是否为受保护路径 */
+function scanArgsForProtectedPaths(args: unknown, depth = 0): string[] {
   const found: string[] = []
-  if (!args || typeof args !== 'object') return found
-  for (const val of Object.values(args as Record<string, unknown>)) {
-    if (typeof val === 'string' && val.length > 2 && /^[a-zA-Z]:\\/.test(val)) {
-      if (isProtectedPath(val)) found.push(val)
+  if (!args || depth > 3) return found
+  if (typeof args === 'string') {
+    if (args.length > 3 && /^[a-zA-Z]:\\/.test(normalizeWinPath(args))) {
+      if (isProtectedPath(normalizeWinPath(args))) found.push(args)
+    }
+    return found
+  }
+  if (Array.isArray(args)) {
+    for (const item of args) {
+      found.push(...scanArgsForProtectedPaths(item, depth + 1))
+    }
+    return found
+  }
+  if (typeof args === 'object') {
+    for (const val of Object.values(args as Record<string, unknown>)) {
+      found.push(...scanArgsForProtectedPaths(val, depth + 1))
     }
   }
   return found

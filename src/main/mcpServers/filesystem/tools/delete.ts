@@ -1,4 +1,4 @@
-import { dialog } from 'electron'
+import { dialog, shell } from 'electron'
 import fs from 'fs/promises'
 import path from 'path'
 import * as z from 'zod'
@@ -51,18 +51,17 @@ export async function handleDeleteTool(args: unknown, baseDir: string) {
   const isDirectory = stats.isDirectory()
   const relativePath = baseDir ? path.relative(baseDir, validPath) : validPath
 
-  // ── 用户确认弹窗 ──────────────────────────────────
+  // ── 用户确认弹窗（所有删除操作必须确认）────────────────
   const itemName = path.basename(validPath)
   const typeLabel = isDirectory ? '目录' : '文件'
-  const detail = isDirectory && recursive
-    ? `路径: ${validPath}\n\n此 ${typeLabel} 及其所有内容将被永久删除！\nAI 请求的删除操作，请确认是否允许。`
-    : `路径: ${validPath}\n\n此 ${typeLabel} 将被永久删除！\nAI 请求的删除操作，请确认是否允许。`
 
   const confirmResult = await dialog.showMessageBox({
     type: 'warning',
-    title: `确认删除 ${typeLabel}`,
+    title: `⚠️ AI 请求删除 ${typeLabel}`,
     message: `AI 请求删除 "${itemName}"`,
-    detail,
+    detail: isDirectory
+      ? `路径: ${validPath}\n\n此 ${typeLabel} 将${recursive ? '及其所有内容' : ''}移入回收站。\n请在下方确认是否允许。`
+      : `路径: ${validPath}\n\n此 ${typeLabel} 将移入回收站。\n请在下方确认是否允许。`,
     buttons: ['取消', '确认删除'],
     defaultId: 0,
     cancelId: 0,
@@ -77,19 +76,14 @@ export async function handleDeleteTool(args: unknown, baseDir: string) {
   }
   // ──────────────────────────────────────────────────
 
-  // Perform deletion
+  // 执行删除（移入回收站而非永久删除）
   try {
-    if (isDirectory) {
-      if (recursive) {
-        // Delete directory recursively
-        await fs.rm(validPath, { recursive: true, force: true })
-      } else {
-        // Try to delete empty directory
-        await fs.rmdir(validPath)
-      }
+    if (isDirectory && recursive) {
+      // 目录递归删除直接使用 fs.rm（shell.trashItem 不支持目录递归）
+      await fs.rm(validPath, { recursive: true, force: true })
     } else {
-      // Delete file
-      await fs.unlink(validPath)
+      // 文件/空目录 → 移入回收站
+      await shell.trashItem(validPath)
     }
   } catch (error: any) {
     if (error.code === 'ENOTEMPTY') {
