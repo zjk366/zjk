@@ -4,12 +4,53 @@
 import { loggerService } from '@logger'
 import mcpService from '@main/services/MCPService'
 import type { MCPCallToolResponse, MCPTool, MCPToolResultContent } from '@types'
+import path from 'node:path'
 
 import { windowService } from '@main/services/WindowService'
 import { fileVault } from '@main/services/FileVault'
 import { buildToolNameMapping, resolveToolId, type ToolIdentity, type ToolNameMapping } from './toolname'
 
 const logger = loggerService.withContext('HubBridge')
+
+// ─── 系统保护路径（与 filesystem/terminal 保持一致）──────
+const SYSTEM_PROTECTED_DIRS: string[] = [
+  ...(() => {
+    const dirs = new Set<string>()
+    for (const key of ['WINDIR', 'SystemRoot', 'ProgramFiles', 'ProgramFiles(x86)', 'ProgramData', 'ALLUSERSPROFILE']) {
+      const val = process.env[key]
+      if (val) dirs.add(path.resolve(val).toLowerCase())
+    }
+    return [...dirs]
+  })(),
+  'c:\\windows', 'c:\\program files', 'c:\\program files (x86)',
+  'c:\\programdata', 'c:\\system volume information',
+  'c:\\$recycle.bin', 'c:\\recovery', 'c:\\config.msi',
+]
+
+function isProtectedPath(targetPath: string): boolean {
+  const resolved = path.resolve(targetPath).toLowerCase()
+  if (/^[a-z]:\\?$/.test(resolved)) return true
+  for (const dir of SYSTEM_PROTECTED_DIRS) {
+    if (!dir) continue
+    const nd = path.resolve(dir).toLowerCase()
+    if (resolved === nd) return true
+    const rel = path.relative(nd, resolved)
+    if (rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel)) return true
+  }
+  return false
+}
+
+/** 扫描参数对象中所有字符串值是否为受保护路径 */
+function scanArgsForProtectedPaths(args: unknown): string[] {
+  const found: string[] = []
+  if (!args || typeof args !== 'object') return found
+  for (const val of Object.values(args as Record<string, unknown>)) {
+    if (typeof val === 'string' && val.length > 2 && /^[a-zA-Z]:\\/.test(val)) {
+      if (isProtectedPath(val)) found.push(val)
+    }
+  }
+  return found
+}
 
 export const listAllTools = () => mcpService.listAllActiveServerTools()
 
@@ -113,6 +154,23 @@ export const callMcpTool = async (nameOrId: string, params: unknown, callId?: st
   if (!toolId) {
     throw new Error(`Tool not found: ${nameOrId}`)
   }
+
+  // ── 系统保护路径检查（hub 入口层）────────────────────
+  // 在所有工具调用前扫描参数，防止绕过底层保护
+  const protectedPaths = scanArgsForProtectedPaths(params)
+  if (protectedPaths.length > 0) {
+    const pathsStr = protectedPaths.join('\n  ')
+    logger.warn(`Blocked tool call targeting protected path`, {
+      toolId,
+      paths: protectedPaths
+    })
+    throw new Error(
+      `拒绝访问：无法操作受系统保护的路径。\n\n` +
+      `AI 尝试访问以下受保护路径：\n  ${pathsStr}\n\n` +
+      `为防止损坏系统，${'C:\\Windows'} 等系统目录下的文件禁止读取和修改。`
+    )
+  }
+  // ──────────────────────────────────────────────────
 
   const result = await mcpService.callToolById(toolId, params, callId)
   throwIfToolError(result)
