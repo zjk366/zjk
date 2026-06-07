@@ -48,35 +48,38 @@ function isPathUnderProtected(targetPath: string): boolean {
   return false
 }
 
-/** 从命令中提取文件路径参数（简易解析） */
+/**
+ * 从命令中提取文件路径参数。
+ * 使用 \b 单词边界而非 ^ 开头，防止 "cmd.exe /c del file" 绕过。
+ */
 const FILE_CMD_PATTERNS = [
   // Windows cmd 删除
-  /^(?:del|erase|rd|rmdir)\s+(.+?)(?:\s*\/[a-z]\s*)?$/im,
+  /\b(?:del|erase|rd|rmdir)\s+(.+?)(?:\s*\/[a-z]\s*)?$/im,
   // Windows cmd 复制/移动
-  /^(?:copy|xcopy|robocopy)\s+("(?:[^"]+)"\s+"(?:[^"]+)")/im,
-  /^(?:move|ren|rename)\s+("(?:[^"]+)"\s+"(?:[^"]+)")/im,
+  /\b(?:copy|xcopy|robocopy)\s+("(?:[^"]+)"\s+"(?:[^"]+)")/im,
+  /\b(?:move|ren|rename)\s+("(?:[^"]+)"\s+"(?:[^"]+)")/im,
   // Windows cmd 读取
-  /^(?:type|more)\s+(.+)$/im,
+  /\b(?:type|more)\s+(.+)$/im,
   // Unix 删除
-  /^rm\s+(?:-[rf]+\s+)?(.+)$/im,
-  /^rmdir\s+(.+)$/im,
+  /\brm\s+(?:-[rf]+\s+)?(.+)$/im,
+  /\brmdir\s+(.+)$/im,
   // Unix 复制/移动
-  /^cp\s+(?:-[a-z]+\s+)?("(?:[^"]+)"\s+"(?:[^"]+)")/im,
-  /^mv\s+(?:-[a-z]+\s+)?("(?:[^"]+)"\s+"(?:[^"]+)")/im,
+  /\bcp\s+(?:-[a-z]+\s+)?("(?:[^"]+)"\s+"(?:[^"]+)")/im,
+  /\bmv\s+(?:-[a-z]+\s+)?("(?:[^"]+)"\s+"(?:[^"]+)")/im,
   // Unix 读取
-  /^cat\s+(.+)$/im,
-  /^(?:head|tail|less|more)\s+(.+)$/im,
+  /\bcat\s+(.+)$/im,
+  /\b(?:head|tail|less|more)\s+(.+)$/im,
   // PowerShell 删除
-  /^remove-item\s+(?:-(?:path|literalpath)\s+)?(.+?)(?:\s+-|\||$)/im,
-  /^ri\s+(?:-(?:path|literalpath)\s+)?(.+?)(?:\s+-|\||$)/im,
+  /\bremove-item\s+(?:-(?:path|literalpath)\s+)?(.+?)(?:\s+-|\||$)/im,
+  /\bri\s+(?:-(?:path|literalpath)\s+)?(.+?)(?:\s+-|\||$)/im,
   // PowerShell 复制/移动
-  /^move-item\s+(?:-path\s+)?(.+?)(\s+-destination\s+.+?)?(?:\s+-|\||$)/im,
-  /^copy-item\s+(?:-path\s+)?(.+?)(\s+-destination\s+.+?)?(?:\s+-|\||$)/im,
-  /^rename-item\s+(?:-path\s+)?(.+?)(?:\s+-|\||$)/im,
+  /\bmove-item\s+(?:-path\s+)?(.+?)(\s+-destination\s+.+?)?(?:\s+-|\||$)/im,
+  /\bcopy-item\s+(?:-path\s+)?(.+?)(\s+-destination\s+.+?)?(?:\s+-|\||$)/im,
+  /\brename-item\s+(?:-path\s+)?(.+?)(?:\s+-|\||$)/im,
   // PowerShell 读取
-  /^get-content\s+(?:-path\s+)?(.+?)(?:\s+-|\||$)/im,
-  /^gc\s+(.+?)(?:\s+-|\||$)/im,
-  /^cat\s+(.+?)(?:\s+-|\||$)/im,
+  /\bget-content\s+(?:-path\s+)?(.+?)(?:\s+-|\||$)/im,
+  /\bgc\s+(.+?)(?:\s+-|\||$)/im,
+  /\bcat\s+(.+?)(?:\s+-|\||$)/im,
 ]
 
 /** 展开命令中的环境变量（%VAR% → 值） */
@@ -136,25 +139,24 @@ export const DANGEROUS_WIN_COMMANDS = [
 export function isDangerousCommand(cmd: string): boolean {
   const lower = cmd.trim().toLowerCase()
   for (const pattern of DANGEROUS_COMMANDS) {
-    if (lower.startsWith(pattern)) return true
+    // 全文匹配，防止 "cmd.exe /c shutdown" 绕过
+    if (lower.includes(pattern)) return true
   }
   for (const pattern of DANGEROUS_WIN_COMMANDS) {
-    if (lower.startsWith(pattern)) return true
+    if (lower.includes(pattern)) return true
   }
   return false
 }
 
-/** 检测命令是否为文件/目录删除操作（含 PowerShell 变体） */
+/** 检测命令是否为文件/目录删除操作（全文扫描，防止 cmd.exe /c 绕过） */
 function isDeleteCommand(lower: string): boolean {
-  // cmd: del, erase, rd, rmdir
-  if (/^(?:del|erase|rd|rmdir)\s/.test(lower)) return true
-  // Unix: rm (不含 rm -rf / 已在 dangerous 处理)
-  if (/^rm\s+(?:(?!-rf\s+\/).)*$/.test(lower) && !lower.startsWith('rm -rf /')) return true
-  // PowerShell: Remove-Item, ri (alias), rm (PowerShell alias)
-  if (/^remove-item\b/.test(lower)) return true
-  if (/^ri\s/.test(lower)) return true
-  // PowerShell with -LiteralPath
-  if (/^remove-item\s+-literalpath\b/.test(lower)) return true
+  // cmd: del, erase, rd, rmdir（任意位置）
+  if (/\b(?:del|erase|rd|rmdir)\s/.test(lower)) return true
+  // Unix: rm（任意位置，排除 rm -rf /）
+  if (/\brm\s+(?!-rf\s+\/)/.test(lower) && !/\brm -rf\s+\//.test(lower)) return true
+  // PowerShell: Remove-Item, ri（任意位置）
+  if (/\bremove-item\b/.test(lower)) return true
+  if (/\bri\s/.test(lower)) return true
   return false
 }
 
