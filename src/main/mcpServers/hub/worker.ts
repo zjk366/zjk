@@ -62,19 +62,12 @@ const mcp = {
 }
 
 const buildContext = () => {
-  // shadow Node.js globals to prevent AI from accessing fs/child_process directly
+  // 只暴露安全的 API，不允许 AI 直接操作文件系统
   return {
     mcp,
     parallel: (...promises) => Promise.all(promises),
     settle: (...promises) => Promise.allSettled(promises),
-    console: capturedConsole,
-    process: undefined,
-    require: undefined,
-    module: undefined,
-    __dirname: undefined,
-    __filename: undefined,
-    global: undefined,
-    globalThis: undefined
+    console: capturedConsole
   }
 }
 
@@ -82,12 +75,29 @@ const runCode = async (code, context) => {
   const contextKeys = Object.keys(context)
   const contextValues = contextKeys.map((key) => context[key])
 
-  // We run in an async context to allow top-level await inside the provided code.
-  // IMPORTANT: Users should explicitly return the final value.
-  const wrappedCode = "return (async () => {\\n" + code + "\\n})()"
+  // ── 安全沙箱：临时删除 Node.js 全局变量 ─────────────────
+  // AI 可能通过 Function('return process')() 等方式从全局作用域
+  // 获取 process，然后利用 process.binding 或 child_process 绕过工具层保护。
+  // 此处临时从 global 中删除危险 API，执行完毕后恢复。
+  const SAVED_GLOBALS = {
+    process: global.process,
+    require: global.require,
+    module: global.module
+  }
+  try {
+    delete global.process
+    delete global.require
+    delete global.module
 
-  const fn = new Function(...contextKeys, wrappedCode)
-  return await fn(...contextValues)
+    const wrappedCode = "return (async () => {\\n" + code + "\\n})()"
+    const fn = new Function(...contextKeys, wrappedCode)
+    return await fn(...contextValues)
+  } finally {
+    // 恢复全局变量
+    if (SAVED_GLOBALS.process !== undefined) global.process = SAVED_GLOBALS.process
+    if (SAVED_GLOBALS.require !== undefined) global.require = SAVED_GLOBALS.require
+    if (SAVED_GLOBALS.module !== undefined) global.module = SAVED_GLOBALS.module
+  }
 }
 
 const handleExec = async (code) => {
