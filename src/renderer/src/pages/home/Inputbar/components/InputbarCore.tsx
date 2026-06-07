@@ -3,7 +3,7 @@ import { loggerService } from '@logger'
 import { ActionIconButton } from '@renderer/components/Buttons'
 import type { QuickPanelTriggerInfo } from '@renderer/components/QuickPanel'
 import { QuickPanelReservedSymbol, QuickPanelView, useQuickPanel } from '@renderer/components/QuickPanel'
-import TranslateButton from '@renderer/components/TranslateButton'
+import TokenMonitorButton from '@renderer/components/TokenMonitorButton'
 import { useRuntime } from '@renderer/hooks/useRuntime'
 import { useSettings } from '@renderer/hooks/useSettings'
 import { useTimer } from '@renderer/hooks/useTimer'
@@ -606,15 +606,7 @@ export const InputbarCore: FC<InputbarCoreProps> = ({
 
   const rightSectionExtras = useMemo(() => {
     const extras: React.ReactNode[] = []
-    extras.push(
-      <TranslateButton
-        key="translate"
-        text={text}
-        disabled={isSendDisabled}
-        onTranslated={onTranslated}
-        isLoading={isTranslating}
-      />
-    )
+    extras.push(<TokenMonitorButton key="token-monitor" />)
     extras.push(<SendMessageButton sendMessage={handleSendMessage} disabled={isSendDisabled} />)
 
     if (isLoading) {
