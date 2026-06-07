@@ -296,23 +296,22 @@ class MemoryBankService {
     return Object.entries(freq).sort((a, b) => b[1] - a[1]).slice(0, MEMORY_CONFIG.MAX_KEYWORDS).map(([w]) => w)
   }
 
-  // ---- 关闭/切后台时强制总结 ----
+  // ---- 关闭/切后台时保存 ----
 
-  /** 关闭/切后台时：保存当前对话的末条记录，确保不丢失 */
+  /** 切后台时：尽早开始保存（比 beforeunload 早数秒到数分钟） */
   private onVisibilityChange = (): void => {
     if (document.visibilityState === 'hidden') {
-      this.clearIdleTimer()
       void this.saveLatestConversationLog()
     }
   }
 
+  /** 关闭时：尽力保存末条对话（即使没写完，对话数据也在 db.topics 中不丢失） */
   private onBeforeUnload = (): void => {
     this.clearIdleTimer()
-    // 同步保存最后一次对话（beforeunload 中用同步 DB 操作可能不行，但能尽力）
     void this.saveLatestConversationLog()
   }
 
-  /** 保存当前活跃话题的最新一条对话（防止关闭时丢失末条记录） */
+  /** 保存当前活跃话题的最新一条对话 */
   private async saveLatestConversationLog(): Promise<void> {
     if (!this.activeTopicId) return
     try {
@@ -322,11 +321,9 @@ class MemoryBankService {
       const lastUser = [...msgs].reverse().find((m) => m.role === 'user')
       const lastAssistant = [...msgs].reverse().find((m) => m.role === 'assistant')
       if (!lastUser || !lastAssistant) return
-      // 检查是否已经保存过
       const existing = await db.table('conversation_logs')
         .where('topicId').equals(this.activeTopicId).toArray()
-      const lastSaved = existing[existing.length - 1]
-      if (lastSaved && lastSaved.userContent.includes(lastUser.id?.slice(0, 8) || '')) return
+      if (existing.some((l) => l.id?.includes(lastAssistant.id?.slice(0, 8) || ''))) return
       const getContent = async (msgId: string): Promise<string> => {
         try {
           const blocks: any[] = await db.table('message_blocks')
@@ -339,13 +336,13 @@ class MemoryBankService {
       const assistantContent = await getContent(lastAssistant.id)
       if (!userContent && !assistantContent) return
       await db.table('conversation_logs').add({
-        id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        id: `log_${lastAssistant.id?.slice(0, 8) || ''}_${Date.now()}`,
         topicId: this.activeTopicId,
         userContent: userContent.slice(0, 1000),
         assistantContent: assistantContent.slice(0, 1000),
         createdAt: new Date().toISOString(),
       } as ConversationLog)
-    } catch { /* 关闭时尽力保存，失败不影响 */ }
+    } catch { /* 关闭时尽力保存 */ }
   }
 
   // ---- CRUD (公开) ----
