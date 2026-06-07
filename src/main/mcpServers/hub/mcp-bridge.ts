@@ -5,6 +5,8 @@ import { loggerService } from '@logger'
 import mcpService from '@main/services/MCPService'
 import type { MCPCallToolResponse, MCPTool, MCPToolResultContent } from '@types'
 
+import { windowService } from '@main/services/WindowService'
+import { fileStorage } from '@main/services/FileStorage'
 import { fileVault } from '@main/services/FileVault'
 import { buildToolNameMapping, resolveToolId, type ToolIdentity, type ToolNameMapping } from './toolname'
 
@@ -130,18 +132,21 @@ export const callMcpTool = async (nameOrId: string, params: unknown, callId?: st
       const refs: string[] = []
       for (const img of imageItems) {
         try {
-          // 兼容 type: 'image' 和 type: 'resource' 两种格式
           const base64Data = img.data || img.resource?.blob || (img.resource?.uri?.startsWith('data:') ? img.resource.uri : '')
-          const mimeType = img.mimeType || img.resource?.mimeType || 'image/png'
-          const ext = mimeType.split('/')[1] || 'png'
-          const name = `screenshot_${Date.now()}.${ext}`
-          const uri = fileVault.saveFromBase64(base64Data, name)
+          const meta = await fileStorage.saveBase64Image(null as any, base64Data)
+          const uri = `attachment://${meta.name}`
           refs.push(uri)
-          logger.info(`Image saved to vault: ${uri}`)
+          logger.info(`Image saved: ${uri}`)
         } catch (e) {
           logger.error('Failed to save image:', e)
         }
       }
+
+      // 通知渲染进程刷新文件库
+      try {
+        const win = windowService.getMainWindow()
+        if (win && !win.isDestroyed()) win.webContents.send('file:file-added')
+      } catch { /* ok */ }
 
       if (refs.length > 0) {
         // 保留原始图片数据（供渲染进程的 extractImagesFromToolOutput 使用）

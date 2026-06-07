@@ -72,6 +72,12 @@ const FileLibPage: FC = () => {
   const [editMode, setEditMode] = useState(false)
   const [editContent, setEditContent] = useState('')
 
+  // 监听文件变更事件自动刷新
+  useEffect(() => {
+    const cleanup = window.electron?.ipcRenderer?.on('file:file-added', () => setRefreshKey((k) => k + 1))
+    return () => cleanup?.()
+  }, [])
+
   // 读取文件列表
   const load = useCallback(async () => {
     if (!basePath) { setFiles([]); return }

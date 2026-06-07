@@ -28,7 +28,7 @@ interface VaultStore {
   rootDir?: string
 }
 
-const DEFAULT_VAULT_ROOT = 'vault'
+const DEFAULT_VAULT_ROOT = 'files'
 
 /** 禁止出现在文件名中的字符 */
 const INVALID_FILENAME_CHARS = /[<>:"/\\|?*\x00-\x1f]/g
