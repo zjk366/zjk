@@ -6,7 +6,6 @@ import mcpService from '@main/services/MCPService'
 import type { MCPCallToolResponse, MCPTool, MCPToolResultContent } from '@types'
 
 import { windowService } from '@main/services/WindowService'
-import { fileStorage } from '@main/services/FileStorage'
 import { fileVault } from '@main/services/FileVault'
 import { buildToolNameMapping, resolveToolId, type ToolIdentity, type ToolNameMapping } from './toolname'
 
@@ -133,8 +132,9 @@ export const callMcpTool = async (nameOrId: string, params: unknown, callId?: st
       for (const img of imageItems) {
         try {
           const base64Data = img.data || img.resource?.blob || (img.resource?.uri?.startsWith('data:') ? img.resource.uri : '')
-          const meta = await fileStorage.saveBase64Image(null as any, base64Data)
-          const uri = `attachment://${meta.name}`
+          const mimeType = img.mimeType || img.resource?.mimeType || 'image/png'
+          const ext = mimeType.split('/')[1] || 'png'
+          const uri = fileVault.saveFromBase64(base64Data, `screenshot_${Date.now()}.${ext}`)
           refs.push(uri)
           logger.info(`Image saved: ${uri}`)
         } catch (e) {
@@ -142,22 +142,17 @@ export const callMcpTool = async (nameOrId: string, params: unknown, callId?: st
         }
       }
 
-      // 通知渲染进程刷新文件库
-      try {
-        const win = windowService.getMainWindow()
-        if (win && !win.isDestroyed()) win.webContents.send('file:file-added')
-      } catch { /* ok */ }
-
       if (refs.length > 0) {
+        // 通知渲染进程刷新文件库 + 显示提示
+        try {
+          const win = windowService.getMainWindow()
+          if (win && !win.isDestroyed()) win.webContents.send('file:file-added', refs.length)
+        } catch { /* ok */ }
+
         // 保留原始图片数据（供渲染进程的 extractImagesFromToolOutput 使用）
         const originalContent = result.content || []
         result.content = [
           ...originalContent,
-          // 添加 attachment:// 引用，渲染层通过自定义协议加载
-          ...refs.map((uri) => ({
-            type: 'resource' as const,
-            resource: { uri, mimeType: 'image/png' }
-          })),
           // 文本摘要：AI 据此构造 Markdown 图片引用
           { type: 'text', text: `[System: File saved to vault. Reference: ${refs[0]}]` }
         ]

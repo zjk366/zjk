@@ -67,8 +67,9 @@ export function mcpResultToTextSummary(result: MCPCallToolResponse): string {
         break
       case 'resource':
         if (item.resource?.blob) {
+          const safeUri = item.resource.uri?.startsWith('data:') ? '(base64)' : (item.resource.uri || 'unknown')
           parts.push(
-            `[Resource: ${item.resource.mimeType || 'application/octet-stream'}, uri=${item.resource.uri || 'unknown'}, delivered to user]`
+            `[Resource: ${item.resource.mimeType || 'application/octet-stream'}, uri=${safeUri}, delivered to user]`
           )
         } else {
           parts.push(item.resource?.text || JSON.stringify(item))
@@ -185,6 +186,7 @@ export function convertMcpToolsToAiSdkTools(mcpTools: MCPTool[], allowedTools?: 
         // 保存截图图片：同时存入文件库（如已设置）和内部存储
         if (result?.content) {
           const imageItems = result.content.filter((c: any) => c.type === 'image' && c.data)
+          let savedCount = 0
           for (const img of imageItems) {
             try {
               const raw = img.data.startsWith('data:') ? img.data.split(',')[1] : img.data
@@ -208,6 +210,7 @@ export function convertMcpToolsToAiSdkTools(mcpTools: MCPTool[], allowedTools?: 
               } catch { /* 文件库保存失败不影响主流程 */ }
 
               if (meta) {
+                savedCount++
                 const filePath = meta.path?.replace(/\\/g, '/')
                 result.content.push({
                   type: 'text',
@@ -215,6 +218,9 @@ export function convertMcpToolsToAiSdkTools(mcpTools: MCPTool[], allowedTools?: 
                 })
               }
             } catch { /* skip */ }
+          }
+          if (savedCount > 0) {
+            window.toast?.success?.(`已保存 ${savedCount} 张截图到文件库`)
           }
         }
 
@@ -225,10 +231,10 @@ export function convertMcpToolsToAiSdkTools(mcpTools: MCPTool[], allowedTools?: 
       // 图片/音频已通过 IMAGE_COMPLETE chunk 展示给用户。
       // TODO: 待 AI SDK 支持 provider 感知后，可按 provider 返回 media 格式。
       toModelOutput(rawOutput: unknown) {
-        // rawOutput 来自上方 execute 的 return result，类型始终为 MCPCallToolResponse
-        // mcpResultToTextSummary 内部已有 null/content 校验，不会因意外输入崩溃
-        const result = rawOutput as MCPCallToolResponse
-        return { type: 'text' as const, value: mcpResultToTextSummary(result) }
+        // AI SDK v4 的 toModelOutput 签名接收 { toolCallId, input, output }
+        // 其中 output 才是 execute 返回的 MCPCallToolResponse
+        const { output } = rawOutput as { output: MCPCallToolResponse }
+        return { type: 'text' as const, value: mcpResultToTextSummary(output) }
       }
     })
   }

@@ -55,12 +55,23 @@ function vfsUrl(p: string): string {
 }
 
 const STORAGE_KEY = 'filelib_path'
-const getPath = () => (localStorage.getItem(STORAGE_KEY) || '').replace(/\\/g, '/')
+const getPath = async () => {
+  const saved = localStorage.getItem(STORAGE_KEY)
+  if (saved) return saved.replace(/\\/g, '/')
+  // 首次使用：从 FileVault 获取默认路径
+  try {
+    const vaultRoot = await window.electron?.ipcRenderer?.invoke('vault:get-root')
+    if (vaultRoot) return vaultRoot.replace(/\\/g, '/')
+  } catch { /* ok */ }
+  return ''
+}
 
 const FileLibPage: FC = () => {
   const navigate = useNavigate()
-  const [basePath, setBasePath] = useState(getPath)
+  const [basePath, setBasePath] = useState('')
+  const [initDone, setInitDone] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
+  useEffect(() => { getPath().then((p) => { setBasePath(p); setInitDone(true) }) }, [])
   const [files, setFiles] = useState<FileEntry[]>([])
   const [loading, setLoading] = useState(false)
   const [expanded, setExpanded] = useState<string[]>([])
@@ -74,7 +85,10 @@ const FileLibPage: FC = () => {
 
   // 监听文件变更事件自动刷新
   useEffect(() => {
-    const cleanup = window.electron?.ipcRenderer?.on('file:file-added', () => setRefreshKey((k) => k + 1))
+    const cleanup = window.electron?.ipcRenderer?.on('file:file-added', (_event, count: number) => {
+      setRefreshKey((k) => k + 1)
+      window.toast?.success?.(`截图已保存 ${count || 1} 张`)
+    })
     return () => cleanup?.()
   }, [])
 
@@ -121,6 +135,8 @@ const FileLibPage: FC = () => {
         setRefreshKey((k) => k + 1) // 强制刷新（选同一目录也重新加载）
         localStorage.setItem(STORAGE_KEY, normalized)
         try { window.electron?.ipcRenderer?.invoke('app:set-filelib-path', normalized) } catch { /* ok */ }
+        // 同步更新 FileVault 根目录，使截图保存到同一文件夹
+        try { window.electron?.ipcRenderer?.invoke('vault:set-root', normalized) } catch { /* ok */ }
       }
     }
   }, [])

@@ -430,27 +430,24 @@ function extractImagesFromToolOutput(output: unknown): string[] {
   // 尝试通过 MCP CallToolResultSchema 解析
   const result = CallToolResultSchema.safeParse(output)
   if (result.success) {
-    return result.data.content.flatMap((c: any) => {
-      // 处理 type: 'image'（标准 MCP 图片内容块）
+    for (const c of result.data.content) {
       if (c.type === 'image' && c.data) {
         return [`data:${c.mimeType ?? 'image/png'};base64,${c.data}`]
       }
-      // 处理 type: 'resource'（内嵌 blob 的资源内容块）
       if (c.type === 'resource' && c.resource?.blob) {
         return [`data:${c.resource.mimeType ?? 'image/png'};base64,${c.resource.blob}`]
       }
-      // 处理 type: 'resource' 且 uri 为 data: URL
       if (c.type === 'resource' && c.resource?.uri?.startsWith('data:')) {
         return [c.resource.uri]
       }
-      return []
-    })
+    }
+    return []
   }
 
   // schema 校验失败时的兜底：手动查找 content 中的图片
   const rawOutput = output as any
   if (rawOutput?.content && Array.isArray(rawOutput.content)) {
-    return rawOutput.content.flatMap((c: any) => {
+    for (const c of rawOutput.content) {
       if (c.type === 'image' && c.data) {
         return [`data:${c.mimeType ?? 'image/png'};base64,${c.data}`]
       }
@@ -460,8 +457,8 @@ function extractImagesFromToolOutput(output: unknown): string[] {
       if (c.type === 'resource' && c.resource?.uri?.startsWith('data:')) {
         return [c.resource.uri]
       }
-      return []
-    })
+    }
+    return []
   }
 
   return []
