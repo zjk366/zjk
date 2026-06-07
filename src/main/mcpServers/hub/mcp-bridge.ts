@@ -162,10 +162,10 @@ export const callMcpTool = async (nameOrId: string, params: unknown, callId?: st
           const prefix = isImageMime(mimeType) ? 'screenshot' : 'file'
           const uri = fileVault.saveFromBase64(base64Data, `${prefix}_${Date.now()}${ext}`)
           refs.push(uri)
-          if (isImageMime(mimeType)) imageCount++ else fileCount++
+          if (isImageMime(mimeType)) { imageCount++ } else { fileCount++ }
           logger.info(`File saved to vault: ${uri}`)
         } catch (e) {
-          logger.error('Failed to save file to vault:', e)
+          logger.error(`Failed to save file to vault: ${e}`)
         }
       }
 
