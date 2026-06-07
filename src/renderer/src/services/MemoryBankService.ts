@@ -66,15 +66,66 @@ class MemoryBankService {
     this.initialized = false
   }
 
-  /** 启动时：检查是否有未总结的日志 → 合并为一条全局记忆 */
+  /** 启动时：处理遗留日志 + 去重合并相似记忆 */
   private async summarizePendingLogs(): Promise<void> {
     try {
+      // 1) 先处理遗留日志
       const allLogs: ConversationLog[] = await db.table('conversation_logs').toArray()
-      if (allLogs.length === 0) return
-      logger.info(`Found ${allLogs.length} pending log(s), triggering global AI summary...`)
-      await this.triggerAISummary('__all__')
+      if (allLogs.length > 0) {
+        logger.info(`Found ${allLogs.length} pending log(s), triggering global AI summary...`)
+        await this.triggerAISummary('__all__')
+      }
+      // 2) 去重合并相似记忆
+      await this.deduplicateMemories()
     } catch (err) {
       logger.error('Failed to summarize pending logs:', err)
+    }
+  }
+
+  /** 合并关键词重叠的相似记忆（启动时执行） */
+  private async deduplicateMemories(): Promise<void> {
+    try {
+      const table = db.table<Memory>('memories')
+      const all = (await table.toArray()).filter((m) => !m.isDeleted)
+      if (all.length <= 1) return
+
+      const toDelete = new Set<string>()
+
+      for (let i = 0; i < all.length; i++) {
+        if (toDelete.has(all[i].id)) continue
+        for (let j = i + 1; j < all.length; j++) {
+          if (toDelete.has(all[j].id)) continue
+          // 检查关键词是否有重叠
+          const overlap = all[i].keywords.some((ka) =>
+            all[j].keywords.some((kb) => ka.includes(kb) || kb.includes(ka))
+          )
+          if (!overlap) continue
+
+          // 合并：保留最新的（createdAt 更新的那条），丢弃旧的
+          const [newer, older] =
+            new Date(all[i].createdAt) > new Date(all[j].createdAt)
+              ? [all[i], all[j]] : [all[j], all[i]]
+
+          const mergedKeywords = [...new Set([...newer.keywords, ...older.keywords])]
+            .slice(0, MEMORY_CONFIG.MAX_KEYWORDS)
+
+          await table.update(newer.id, {
+            summary: newer.summary,    // 保留最新的摘要
+            keywords: mergedKeywords,
+            lastReferencedAt: new Date().toISOString(),
+          })
+          toDelete.add(older.id)
+        }
+      }
+
+      // 删除被合并的旧记忆
+      if (toDelete.size > 0) {
+        await Promise.all([...toDelete].map((id) => table.delete(id)))
+        this.debounceSyncToDisk()
+        logger.info(`Merged ${toDelete.size} duplicate memory/ies`)
+      }
+    } catch (err) {
+      logger.error('Failed to deduplicate memories:', err)
     }
   }
 
