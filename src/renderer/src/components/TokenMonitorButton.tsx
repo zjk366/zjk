@@ -122,12 +122,12 @@ const TokenMonitorButton: React.FC = () => {
 
   // 监听消息完成事件，自动累计 token
   useEffect(() => {
-    const handler = (message: any) => {
-      const usage = message?.usage
+    const handler = (event: { usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } }) => {
+      const usage = event?.usage
       if (!usage) return
 
-      const prompt = usage.prompt_tokens || 0
-      const completion = usage.completion_tokens || 0
+      const prompt = usage.prompt_tokens ?? 0
+      const completion = usage.completion_tokens ?? 0
       let cost = 0
       if (model?.pricing) {
         cost =

@@ -280,7 +280,8 @@ export const createBaseCallbacks = (deps: BaseCallbacksDependencies) => {
         id: assistantMsgId,
         topicId,
         status: isErrorTypeAbort ? 'pause' : 'error',
-        error: error.message
+        error: error.message,
+        usage: undefined
       })
     },
 
@@ -373,7 +374,12 @@ export const createBaseCallbacks = (deps: BaseCallbacksDependencies) => {
         trackTokenUsage({ usage: response?.usage, model: assistant?.model, source: 'agent' })
       }
 
-      void EventEmitter.emit(EVENT_NAMES.MESSAGE_COMPLETE, { id: assistantMsgId, topicId, status })
+      void EventEmitter.emit(EVENT_NAMES.MESSAGE_COMPLETE, {
+        id: assistantMsgId,
+        topicId,
+        status,
+        usage: response?.usage
+      })
       logger.debug('onComplete finished')
     }
   }
