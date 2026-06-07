@@ -1323,12 +1323,16 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
     analyticsService.trackTokenUsage(data)
   )
 
-  // ── 记忆库 IPC ────────────────────────────────────
+  // ── 记忆库 IPC（已注册则跳过，防止 registerIpc 重复调用） ──
+  const safeHandle = (channel: string, handler: (...args: any[]) => unknown) => {
+    try { ipcMain.handle(channel, handler as any) } catch { /* 已注册，跳过 */ }
+  }
+
   const MEMORY_BANK_FILE = path.join(app.getPath('userData'), 'Data', 'memory_bank.json')
 
-  ipcMain.handle('memory:get-disk-path', () => MEMORY_BANK_FILE)
+  safeHandle('memory:get-disk-path', () => MEMORY_BANK_FILE)
 
-  ipcMain.handle('memory:search', async (_event, query: string) => {
+  safeHandle('memory:search', async (_event: any, query: string) => {
     try {
       if (!fs.existsSync(MEMORY_BANK_FILE)) return []
       const raw = fs.readFileSync(MEMORY_BANK_FILE, 'utf-8')
@@ -1342,7 +1346,7 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
     } catch { return [] }
   })
 
-  ipcMain.handle('memory:search-by-keywords', async (_event, keywords: string[]) => {
+  safeHandle('memory:search-by-keywords', async (_event: any, keywords: string[]) => {
     try {
       if (!fs.existsSync(MEMORY_BANK_FILE)) return []
       const raw = fs.readFileSync(MEMORY_BANK_FILE, 'utf-8')
