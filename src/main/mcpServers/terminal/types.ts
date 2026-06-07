@@ -50,19 +50,21 @@ function isPathUnderProtected(targetPath: string): boolean {
 
 /** 从命令中提取文件路径参数（简易解析） */
 const FILE_CMD_PATTERNS = [
-  // Windows: del/erase file, rmdir/rd dir, copy src dst, move src dst, ren old new
+  // Windows cmd
   /^(?:del|erase|rd|rmdir)\s+(.+?)(?:\s*\/[a-z]\s*)?$/im,
   /^(?:copy|xcopy|robocopy)\s+("(?:[^"]+)"\s+"(?:[^"]+)")/im,
   /^(?:move|ren|rename)\s+("(?:[^"]+)"\s+"(?:[^"]+)")/im,
-  // Unix: rm file, rm -rf dir, rmdir dir, mv src dst, cp src dst
+  // Unix
   /^rm\s+(?:-[rf]+\s+)?(.+)$/im,
   /^rmdir\s+(.+)$/im,
   /^cp\s+(?:-[a-z]+\s+)?("(?:[^"]+)"\s+"(?:[^"]+)")/im,
   /^mv\s+(?:-[a-z]+\s+)?("(?:[^"]+)"\s+"(?:[^"]+)")/im,
-  // PowerShell: Remove-Item, Move-Item, Copy-Item
-  /^remove-item\s+(?:-path\s+)?(.+?)(?:\s+-|\||$)/im,
+  // PowerShell: Remove-Item (支持 -Path 和 -LiteralPath 参数)
+  /^remove-item\s+(?:-(?:path|literalpath)\s+)?(.+?)(?:\s+-|\||$)/im,
+  /^ri\s+(?:-(?:path|literalpath)\s+)?(.+?)(?:\s+-|\||$)/im,
   /^move-item\s+(?:-path\s+)?(.+?)(\s+-destination\s+.+?)?(?:\s+-|\||$)/im,
   /^copy-item\s+(?:-path\s+)?(.+?)(\s+-destination\s+.+?)?(?:\s+-|\||$)/im,
+  /^rename-item\s+(?:-path\s+)?(.+?)(?:\s+-|\||$)/im,
 ]
 
 /**
@@ -120,21 +122,50 @@ export function isDangerousCommand(cmd: string): boolean {
   return false
 }
 
+/** 检测命令是否为文件/目录删除操作（含 PowerShell 变体） */
+function isDeleteCommand(lower: string): boolean {
+  // cmd: del, erase, rd, rmdir
+  if (/^(?:del|erase|rd|rmdir)\s/.test(lower)) return true
+  // Unix: rm (不含 rm -rf / 已在 dangerous 处理)
+  if (/^rm\s+(?:(?!-rf\s+\/).)*$/.test(lower) && !lower.startsWith('rm -rf /')) return true
+  // PowerShell: Remove-Item, ri (alias), rm (PowerShell alias)
+  if (/^remove-item\b/.test(lower)) return true
+  if (/^ri\s/.test(lower)) return true
+  // PowerShell with -LiteralPath
+  if (/^remove-item\s+-literalpath\b/.test(lower)) return true
+  return false
+}
+
+/** 检测命令是否为文件移动/重命名操作 */
+function isMoveCommand(lower: string): boolean {
+  if (/^(?:mv|move|ren|rename)\s/.test(lower)) return true
+  if (/^move-item\b/.test(lower)) return true
+  if (/^rename-item\b/.test(lower)) return true
+  return false
+}
+
+/** 检测命令是否为文件复制操作 */
+function isCopyCommand(lower: string): boolean {
+  if (/^(?:cp|copy|xcopy|robocopy)\s/.test(lower)) return true
+  if (/^copy-item\b/.test(lower)) return true
+  return false
+}
+
+/** 检测命令是否为下载操作 */
+function isDownloadCommand(lower: string): boolean {
+  if (/^(?:wget|curl|iwr|invoke-webrequest)\s/.test(lower)) return true
+  return false
+}
+
 export function getCommandSummary(cmd: string): string {
   const lower = cmd.trim().toLowerCase()
-  if (lower.startsWith('rm ') || lower.startsWith('del ') || lower.startsWith('rd ') || lower.startsWith('rmdir ')) {
-    return '删除文件/目录'
-  }
-  if (lower.startsWith('mv ') || lower.startsWith('move ') || lower.startsWith('ren ')) {
-    return '移动/重命名'
-  }
-  if (lower.startsWith('cp ') || lower.startsWith('copy ') || lower.startsWith('xcopy ') || lower.startsWith('robocopy')) {
-    return '复制文件'
-  }
-  if (lower.startsWith('net')) return '网络配置变更'
-  if (lower.startsWith('reg')) return '注册表操作'
-  if (lower.startsWith('taskkill') || lower.startsWith('kill')) return '终止进程'
-  if (lower.startsWith('wget ') || lower.startsWith('curl ') || lower.startsWith('iwr ')) return '下载文件'
+  if (isDeleteCommand(lower)) return '删除文件/目录'
+  if (isMoveCommand(lower)) return '移动/重命名'
+  if (isCopyCommand(lower)) return '复制文件'
+  if (isDownloadCommand(lower)) return '下载文件'
+  if (/^net\b/.test(lower)) return '网络配置变更'
+  if (/^reg\b/.test(lower)) return '注册表操作'
+  if (/^(?:taskkill|kill)\s/.test(lower)) return '终止进程'
   if (/^(pip|npm|yarn|pnpm|go |cargo |gem |brew |choco |winget |scoop )/.test(lower)) return '包管理器操作'
   return '执行命令'
 }
