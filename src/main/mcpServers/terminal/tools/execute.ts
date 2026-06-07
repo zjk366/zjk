@@ -67,22 +67,25 @@ export async function handleExecuteTool(args: unknown) {
   const { command, cwd, timeout, description } = parsed.data
   const workDir = cwd || os.homedir()
 
-  // ── 文件删除操作确认（任何删除命令都需要用户确认）───────
+  // ── 系统保护路径的删除操作需要用户确认 ────────────────
   const cmdSummary = getCommandSummary(command)
-  if (cmdSummary === '删除文件/目录') {
+  const protectedPaths = checkProtectedFileOperation(command)
+
+  if (cmdSummary === '删除文件/目录' && protectedPaths.length > 0) {
+    const pathsStr = protectedPaths.join('\n')
     const result = await dialog.showMessageBox({
       type: 'warning',
-      title: '⚠️ AI 请求删除文件',
-      message: `AI 请求执行删除操作`,
-      detail: `命令: ${command}\n\n删除操作会将文件移入回收站。请确认是否允许 AI 执行此操作。`,
+      title: '⚠️ AI 请求删除系统保护路径中的文件',
+      message: `AI 请求删除受系统保护的文件`,
+      detail: `命令: ${command}\n\n以下路径受系统保护：\n${pathsStr}\n\n确认后将移入回收站。`,
       buttons: ['取消', '确认删除'],
       defaultId: 0,
       cancelId: 0,
     })
     if (result.response !== 1) {
-      logger.info('Delete command rejected by user', { command })
+      logger.info('Delete of protected file rejected by user', { command, paths: protectedPaths })
       return {
-        content: [{ type: 'text', text: `用户已取消删除操作: ${command}` }],
+        content: [{ type: 'text', text: `用户已取消删除受保护路径的文件: ${command}` }],
         isError: true
       }
     }
@@ -91,20 +94,13 @@ export async function handleExecuteTool(args: unknown) {
       const filePath = extractPathFromCommand(command)
       if (filePath) {
         await shell.trashItem(filePath)
-        logger.info('File moved to trash (user confirmed)', { command, path: filePath })
+        logger.info('Protected file moved to trash (user confirmed)', { command, path: filePath })
         return {
           content: [{
             type: 'text',
             text: `$ ${command}\n\n文件已安全移入回收站 ✅`
           }]
         }
-      }
-      // 无法提取路径，返回提示
-      return {
-        content: [{
-          type: 'text',
-          text: `$ ${command}\n\n操作已确认，但无法自动识别文件路径。请手动使用回收站。`
-        }]
       }
     } catch (e) {
       logger.error('Failed to move file to trash:', e as Error)
