@@ -117,28 +117,55 @@ export const callMcpTool = async (nameOrId: string, params: unknown, callId?: st
   const result = await mcpService.callToolById(toolId, params, callId)
   throwIfToolError(result)
 
-  // 保存图片到 FileVault（持久化文件库）
+  /** 常见非图片 MIME 前缀，用于友好文件名 */
+  const fileExtMap: Record<string, string> = {
+    'application/pdf': '.pdf',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation': '.pptx',
+    'application/zip': '.zip',
+    'text/csv': '.csv',
+    'text/plain': '.txt',
+    'text/html': '.html',
+    'text/markdown': '.md',
+    'application/json': '.json',
+  }
+
+  function getExtFromMime(mime: string): string {
+    if (mime.startsWith('image/')) return `.${mime.split('/')[1] || 'png'}`
+    return fileExtMap[mime] || `.${mime.split('/')[1] || 'bin'}`
+  }
+
+  function isImageMime(mime: string): boolean {
+    return mime.startsWith('image/')
+  }
+
+  // 保存图片/文件到 FileVault（持久化文件库）
   if (result?.content) {
-    const imageItems = result.content.filter((c: any) => {
+    const fileItems = result.content.filter((c: any) => {
       // 标准 MCP 图片块
       if (c.type === 'image' && c.data) return true
-      // 资源内嵌 blob 图片块 (@cherry/browser 等)
+      // 资源内嵌 blob 块（任意文件类型）
       if (c.type === 'resource' && (c.resource?.blob || c.resource?.uri?.startsWith('data:'))) return true
       return false
     })
-    logger.info(`FileVault: ${imageItems.length} image(s) found in tool result`)
-    if (imageItems.length > 0) {
+    logger.info(`FileVault: ${fileItems.length} file(s) found in tool result`)
+    if (fileItems.length > 0) {
       const refs: string[] = []
-      for (const img of imageItems) {
+      let imageCount = 0
+      let fileCount = 0
+      for (const item of fileItems) {
         try {
-          const base64Data = img.data || img.resource?.blob || (img.resource?.uri?.startsWith('data:') ? img.resource.uri : '')
-          const mimeType = img.mimeType || img.resource?.mimeType || 'image/png'
-          const ext = mimeType.split('/')[1] || 'png'
-          const uri = fileVault.saveFromBase64(base64Data, `screenshot_${Date.now()}.${ext}`)
+          const base64Data = item.data || item.resource?.blob || (item.resource?.uri?.startsWith('data:') ? item.resource.uri : '')
+          const mimeType = item.mimeType || item.resource?.mimeType || 'image/png'
+          const ext = getExtFromMime(mimeType)
+          const prefix = isImageMime(mimeType) ? 'screenshot' : 'file'
+          const uri = fileVault.saveFromBase64(base64Data, `${prefix}_${Date.now()}${ext}`)
           refs.push(uri)
-          logger.info(`Image saved: ${uri}`)
+          if (isImageMime(mimeType)) imageCount++ else fileCount++
+          logger.info(`File saved to vault: ${uri}`)
         } catch (e) {
-          logger.error('Failed to save image:', e)
+          logger.error('Failed to save file to vault:', e)
         }
       }
 
@@ -149,13 +176,16 @@ export const callMcpTool = async (nameOrId: string, params: unknown, callId?: st
           if (win && !win.isDestroyed()) win.webContents.send('file:file-added', refs.length)
         } catch { /* ok */ }
 
-        // 保留原始图片数据（供渲染进程的 extractImagesFromToolOutput 使用）
+        // 保留原始数据（供渲染进程的 extractImagesFromToolOutput / extractFilesFromToolOutput 使用）
         const originalContent = result.content || []
+        const fileDesc = fileCount > 0 ? `${fileCount} 个文件` : ''
+        const imageDesc = imageCount > 0 ? `${imageCount} 张图片` : ''
+        const desc = [imageDesc, fileDesc].filter(Boolean).join('，')
         result.content = [
           ...originalContent,
-          // 文本摘要：AI 据此构造 Markdown 图片引用
           { type: 'text', text: `[System: File saved to vault. Reference: ${refs[0]}]` }
         ]
+        logger.info(`Saved to vault: ${desc}`)
         return result
       }
     }

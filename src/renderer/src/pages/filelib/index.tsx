@@ -87,7 +87,7 @@ const FileLibPage: FC = () => {
   useEffect(() => {
     const cleanup = window.electron?.ipcRenderer?.on('file:file-added', (_event, count: number) => {
       setRefreshKey((k) => k + 1)
-      window.toast?.success?.(`截图已保存 ${count || 1} 张`)
+      window.toast?.success?.(`已保存 ${count || 1} 个文件到文件库`)
     })
     return () => cleanup?.()
   }, [])

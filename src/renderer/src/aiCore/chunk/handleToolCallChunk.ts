@@ -385,6 +385,21 @@ export class ToolCallChunkHandler {
           }
         })
       }
+
+      const files = extractFilesFromToolOutput(toolResponse.response)
+
+      if (files.length) {
+        logger.info(`[FILE] Extracted ${files.length} file(s) from tool: ${toolResponse.tool.name}`)
+        for (const f of files) {
+          this.onChunk({
+            type: ChunkType.FILE_CREATED
+          })
+          this.onChunk({
+            type: ChunkType.FILE_COMPLETE,
+            file: f
+          })
+        }
+      }
     }
   }
 
@@ -422,6 +437,16 @@ export const addActiveToolCall = ToolCallChunkHandler.addActiveToolCall.bind(Too
 /**
  * 从工具输出中提取图片（使用 MCP SDK 类型安全验证）
  */
+/**
+ * 检查 MIME 类型是否为图片
+ */
+function isImageMime(mimeType: string): boolean {
+  return mimeType.startsWith('image/')
+}
+
+/**
+ * 从工具输出中提取图片（使用 MCP SDK 类型安全验证）
+ */
 function extractImagesFromToolOutput(output: unknown): string[] {
   if (!output) {
     return []
@@ -434,11 +459,12 @@ function extractImagesFromToolOutput(output: unknown): string[] {
       if (c.type === 'image' && c.data) {
         return [`data:${c.mimeType ?? 'image/png'};base64,${c.data}`]
       }
-      if (c.type === 'resource' && c.resource?.blob) {
-        return [`data:${c.resource.mimeType ?? 'image/png'};base64,${c.resource.blob}`]
+      const cres = c as any
+      if (c.type === 'resource' && cres.resource?.blob && isImageMime(cres.resource?.mimeType ?? '')) {
+        return [`data:${cres.resource?.mimeType ?? 'image/png'};base64,${cres.resource.blob}`]
       }
-      if (c.type === 'resource' && c.resource?.uri?.startsWith('data:')) {
-        return [c.resource.uri]
+      if (c.type === 'resource' && cres.resource?.uri?.startsWith('data:')) {
+        return [cres.resource.uri]
       }
     }
     return []
@@ -448,18 +474,87 @@ function extractImagesFromToolOutput(output: unknown): string[] {
   const rawOutput = output as any
   if (rawOutput?.content && Array.isArray(rawOutput.content)) {
     for (const c of rawOutput.content) {
+      const cres = c as any
       if (c.type === 'image' && c.data) {
         return [`data:${c.mimeType ?? 'image/png'};base64,${c.data}`]
       }
-      if (c.type === 'resource' && c.resource?.blob) {
-        return [`data:${c.resource.mimeType ?? 'image/png'};base64,${c.resource.blob}`]
+      if (c.type === 'resource' && cres.resource?.blob && isImageMime(cres.resource?.mimeType ?? '')) {
+        return [`data:${cres.resource?.mimeType ?? 'image/png'};base64,${cres.resource.blob}`]
       }
-      if (c.type === 'resource' && c.resource?.uri?.startsWith('data:')) {
-        return [c.resource.uri]
+      if (c.type === 'resource' && cres.resource?.uri?.startsWith('data:')) {
+        return [cres.resource.uri]
       }
     }
     return []
   }
 
   return []
+}
+
+/**
+ * 从工具输出中提取非图片文件（文档、PDF、表格等）
+ * 返回 { name, mimeType, data } 数组
+ */
+function extractFilesFromToolOutput(output: unknown): { type: 'base64'; name: string; mimeType: string; data: string }[] {
+  if (!output) {
+    return []
+  }
+
+  const results: { type: 'base64'; name: string; mimeType: string; data: string }[] = []
+
+  // 尝试通过 MCP CallToolResultSchema 解析
+  const result = CallToolResultSchema.safeParse(output)
+  if (result.success) {
+    for (const c of result.data.content) {
+      // type: 'resource' 且是非图片文件
+      const cres = c as any
+      if (c.type === 'resource' && cres.resource?.blob && !isImageMime(cres.resource?.mimeType ?? '')) {
+        results.push({
+          type: 'base64' as const,
+          name: `file_${Date.now()}`,
+          mimeType: cres.resource?.mimeType ?? 'application/octet-stream',
+          data: cres.resource.blob
+        })
+      }
+      // type: 'resource' 且 URI 是 data: URL 且非图片
+      if (c.type === 'resource' && cres.resource?.uri?.startsWith('data:') && !isImageMime(cres.resource?.mimeType ?? '')) {
+        const dataUri = cres.resource.uri
+        const commaIdx = dataUri.indexOf(',')
+        results.push({
+          type: 'base64' as const,
+          name: `file_${Date.now()}`,
+          mimeType: cres.resource?.mimeType ?? dataUri.slice(5, commaIdx).split(';')[0] ?? 'application/octet-stream',
+          data: commaIdx >= 0 ? dataUri.slice(commaIdx + 1) : dataUri
+        })
+      }
+    }
+    return results
+  }
+
+  // schema 校验失败时的兜底
+  const rawOutput = output as any
+  if (rawOutput?.content && Array.isArray(rawOutput.content)) {
+    for (const c of rawOutput.content) {
+      if (c.type === 'resource' && c.resource?.blob && !isImageMime(c.resource?.mimeType ?? '')) {
+        results.push({
+          type: 'base64' as const,
+          name: `file_${Date.now()}`,
+          mimeType: c.resource?.mimeType ?? 'application/octet-stream',
+          data: c.resource.blob
+        })
+      }
+      if (c.type === 'resource' && c.resource?.uri?.startsWith('data:') && !isImageMime(c.resource?.mimeType ?? '')) {
+        const dataUri = c.resource.uri
+        const commaIdx = dataUri.indexOf(',')
+        results.push({
+          type: 'base64' as const,
+          name: `file_${Date.now()}`,
+          mimeType: c.resource?.mimeType ?? 'application/octet-stream',
+          data: commaIdx >= 0 ? dataUri.slice(commaIdx + 1) : dataUri
+        })
+      }
+    }
+  }
+
+  return results
 }

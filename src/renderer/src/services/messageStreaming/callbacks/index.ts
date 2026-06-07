@@ -4,6 +4,7 @@ import type { BlockManager } from '../BlockManager'
 import { createBaseCallbacks } from './baseCallbacks'
 import { createCitationCallbacks } from './citationCallbacks'
 import { createCompactCallbacks } from './compactCallbacks'
+import { createFileCallbacks } from './fileCallbacks'
 import { createImageCallbacks } from './imageCallbacks'
 import { createTextCallbacks } from './textCallbacks'
 import { createThinkingCallbacks } from './thinkingCallbacks'
@@ -52,6 +53,11 @@ export const createCallbacks = (deps: CallbacksDependencies) => {
     assistantMsgId
   })
 
+  const fileCallbacks = createFileCallbacks({
+    blockManager,
+    assistantMsgId
+  })
+
   const citationCallbacks = createCitationCallbacks({
     blockManager,
     assistantMsgId,
@@ -86,6 +92,7 @@ export const createCallbacks = (deps: CallbacksDependencies) => {
     ...thinkingCallbacks,
     ...toolCallbacks,
     ...imageCallbacks,
+    ...fileCallbacks,
     ...citationCallbacks,
     ...videoCallbacks,
     ...compactCallbacks,

@@ -52,6 +52,8 @@ export enum ChunkType {
   SEARCH_COMPLETE_UNION = 'search_complete_union',
   VIDEO_SEARCHED = 'video.searched',
   IMAGE_SEARCHED = 'image.searched',
+  FILE_CREATED = 'file.created',
+  FILE_COMPLETE = 'file.complete',
   RAW = 'raw'
 }
 
@@ -442,6 +444,30 @@ export interface ImageSearchedChunk {
   metadata: Record<string, any>
 }
 
+export interface FileCreatedChunk {
+  /**
+   * The type of the chunk
+   */
+  type: ChunkType.FILE_CREATED
+}
+
+export interface FileCompleteChunk {
+  /**
+   * The type of the chunk
+   */
+  type: ChunkType.FILE_COMPLETE
+
+  /**
+   * The file content of the chunk
+   */
+  file: {
+    type: 'base64'
+    name: string
+    mimeType: string
+    data: string
+  }
+}
+
 export interface RawChunk {
   /**
    * The type of the chunk
@@ -489,4 +515,6 @@ export type Chunk =
   | SearchCompleteUnionChunk // 搜索(知识库/互联网)完成
   | VideoSearchedChunk // 知识库检索视频
   | ImageSearchedChunk // 知识库检索图片
+  | FileCreatedChunk // 文件内容创建
+  | FileCompleteChunk // 文件内容生成完成
   | RawChunk

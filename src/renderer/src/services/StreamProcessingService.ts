@@ -50,6 +50,9 @@ export interface StreamProcessorCallbacks {
   onImageCreated?: () => void
   onImageDelta?: (imageData: GenerateImageResponse) => void
   onImageGenerated?: (imageData?: GenerateImageResponse) => void
+  // File download chunk received
+  onFileCreated?: () => void
+  onFileGenerated?: (fileData: { type: 'base64'; name: string; mimeType: string; data: string }) => void
   onLLMResponseComplete?: (response?: Response) => void
   // Called when an error occurs during chunk processing
   onError?: (error: any) => void
@@ -149,6 +152,14 @@ export function createStreamProcessor(callbacks: StreamProcessorCallbacks = {}) 
         }
         case ChunkType.IMAGE_COMPLETE: {
           if (callbacks.onImageGenerated) callbacks.onImageGenerated(data.image)
+          break
+        }
+        case ChunkType.FILE_CREATED: {
+          if (callbacks.onFileCreated) callbacks.onFileCreated()
+          break
+        }
+        case ChunkType.FILE_COMPLETE: {
+          if (callbacks.onFileGenerated) callbacks.onFileGenerated(data.file)
           break
         }
         case ChunkType.LLM_RESPONSE_COMPLETE: {

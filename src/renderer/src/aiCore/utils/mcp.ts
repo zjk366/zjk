@@ -1,6 +1,7 @@
 import { loggerService } from '@logger'
 import store from '@renderer/store'
 import type { MCPCallToolResponse, MCPTool, MCPToolResponse } from '@renderer/types'
+import { FILE_TYPE } from '@renderer/types'
 import { callMCPTool, getMcpServerByTool, isToolAutoApproved } from '@renderer/utils/mcp-tools'
 import {
   confirmSameNameTools,
@@ -28,6 +29,52 @@ export function setupToolsConfig(
   tools = convertMcpToolsToAiSdkTools(mcpTools, allowedTools)
 
   return tools
+}
+
+/** MIME 类型到友好描述的映射 */
+const MIME_DESC_MAP: Record<string, string> = {
+  'application/pdf': 'PDF 文档',
+  'application/json': 'JSON 文件',
+  'application/xml': 'XML 文件',
+  'application/zip': 'ZIP 压缩包',
+  'application/gzip': 'GZIP 压缩包',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'Excel 表格',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'Word 文档',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'PPT 演示文稿',
+  'application/vnd.ms-excel': 'Excel 表格',
+  'application/msword': 'Word 文档',
+  'text/csv': 'CSV 文件',
+  'text/plain': '文本文件',
+  'text/html': 'HTML 文件',
+  'text/markdown': 'Markdown 文件',
+}
+
+function getMimeDescription(mimeType: string): string {
+  return MIME_DESC_MAP[mimeType] || mimeType
+}
+
+/** MIME 类型到扩展名映射 */
+const MIME_EXT_MAP: Record<string, string> = {
+  'application/pdf': '.pdf',
+  'application/json': '.json',
+  'application/xml': '.xml',
+  'application/zip': '.zip',
+  'application/gzip': '.gz',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': '.pptx',
+  'text/csv': '.csv',
+  'text/plain': '.txt',
+  'text/html': '.html',
+  'text/markdown': '.md',
+}
+
+function mimeToExt(mimeType: string): string {
+  return MIME_EXT_MAP[mimeType] || `.${mimeType.split('/')[1] || 'bin'}`
+}
+
+function isImageMime(mimeType: string): boolean {
+  return mimeType.startsWith('image/')
 }
 
 /**
@@ -67,10 +114,13 @@ export function mcpResultToTextSummary(result: MCPCallToolResponse): string {
         break
       case 'resource':
         if (item.resource?.blob) {
-          const safeUri = item.resource.uri?.startsWith('data:') ? '(base64)' : (item.resource.uri || 'unknown')
-          parts.push(
-            `[Resource: ${item.resource.mimeType || 'application/octet-stream'}, uri=${safeUri}, delivered to user]`
-          )
+          const mime = item.resource.mimeType || 'application/octet-stream'
+          if (isImageMime(mime)) {
+            parts.push('[截图已生成，见上方图片]')
+          } else {
+            const desc = getMimeDescription(mime)
+            parts.push(`[${desc} 已保存到文件库]`)
+          }
         } else {
           parts.push(item.resource?.text || JSON.stringify(item))
         }
@@ -183,44 +233,98 @@ export function convertMcpToolsToAiSdkTools(mcpTools: MCPTool[], allowedTools?: 
           return Promise.reject(result)
         }
 
-        // 保存截图图片：同时存入文件库（如已设置）和内部存储
+        // 保存截图图片 + 非图片文件：同时存入文件库（如已设置）和内部存储
         if (result?.content) {
-          const imageItems = result.content.filter((c: any) => c.type === 'image' && c.data)
-          let savedCount = 0
-          for (const img of imageItems) {
+          // 收集所有需要保存的条目（图片 + 非图片 resource blob）
+          const saveItems: { data: string; mimeType: string; isImage: boolean }[] = []
+          for (const c of result.content as any[]) {
+            if (c.type === 'image' && c.data) {
+              saveItems.push({ data: c.data, mimeType: c.mimeType || 'image/png', isImage: true })
+            }
+            if (c.type === 'resource' && c.resource?.blob) {
+              const mime = c.resource.mimeType || 'application/octet-stream'
+              saveItems.push({ data: c.resource.blob, mimeType: mime, isImage: isImageMime(mime) })
+            }
+          }
+
+          let savedImageCount = 0
+          let savedFileCount = 0
+          for (const item of saveItems) {
             try {
-              const raw = img.data.startsWith('data:') ? img.data.split(',')[1] : img.data
+              const raw = item.data.startsWith('data:') ? item.data.split(',')[1] : item.data
               const binary = Uint8Array.from(atob(raw), (c) => c.charCodeAt(0))
-              const ext = img.mimeType === 'image/jpeg' ? 'jpeg' : 'png'
+              const ext = mimeToExt(item.mimeType).replace('.', '') || (item.isImage ? 'png' : 'bin')
 
               // 1. 保存到内部存储（用于聊天显示）
-              const meta: any = await window.api.file.savePastedImage(binary, ext)
+              if (item.isImage) {
+                const meta: any = await window.api.file.savePastedImage(binary, ext)
+                if (meta) {
+                  savedImageCount++
+                  const filePath = meta.path?.replace(/\\/g, '/')
+                  result.content.push({
+                    type: 'text',
+                    text: `\n[Screenshot saved to: ${filePath}]\n`
+                  })
+                }
+              } else {
+                // 非图片文件保存到托管存储
+                try {
+                  const api = (window as any).api?.file
+                  if (api?.createTempFile && api?.write && api?.upload) {
+                    const tempPath = await api.createTempFile(`tool_file_${Date.now()}.${ext}`)
+                    if (tempPath) {
+                      // 写入数据到临时文件
+                      await api.write(tempPath, binary)
+                      // 导入到托管存储
+                      const savedFile = await api.upload({
+                        id: '',
+                        origin_name: `tool_file_${Date.now()}.${ext}`,
+                        name: `tool_file_${Date.now()}.${ext}`,
+                        path: tempPath,
+                        created_at: new Date().toISOString(),
+                        size: binary.length,
+                        ext,
+                        type: FILE_TYPE.OTHER,
+                        count: 1
+                      })
+                      // 清理临时文件
+                      if (api.deleteExternalFile) {
+                        try { await api.deleteExternalFile(tempPath) } catch { /* ok */ }
+                      }
+                      if (savedFile) {
+                        savedFileCount++
+                        result.content.push({
+                          type: 'text',
+                          text: `\n[File saved to: ${(savedFile as any).path?.replace(/\\/g, '/') || 'managed storage'}]\n`
+                        })
+                      }
+                    }
+                  }
+                } catch { /* 托管存储保存失败不影响主流程 */ }
+              }
 
               // 2. 同时保存到文件库目录（如已配置）
               try {
                 const libPath = localStorage.getItem('filelib_path')
                 if (libPath) {
                   const dateStr = new Date().toISOString().slice(0, 7) // 2026-06
-                  const dir = `${libPath.replace(/\\/g, '/')}/images/${dateStr}`
-                  const name = `screenshot_${Date.now()}.${ext}`
+                  const subDir = item.isImage ? 'images' : 'files'
+                  const dir = `${libPath.replace(/\\/g, '/')}/${subDir}/${dateStr}`
+                  const prefix = item.isImage ? 'screenshot' : 'file'
+                  const name = `${prefix}_${Date.now()}.${ext}`
                   // 确保目录存在
                   await (window as any).api?.file?.mkdir(dir).catch(() => {})
                   await (window as any).api?.file?.write(`${dir}/${name}`, binary)
                 }
               } catch { /* 文件库保存失败不影响主流程 */ }
-
-              if (meta) {
-                savedCount++
-                const filePath = meta.path?.replace(/\\/g, '/')
-                result.content.push({
-                  type: 'text',
-                  text: `\n[Screenshot saved to: ${filePath}]\n`
-                })
-              }
             } catch { /* skip */ }
           }
-          if (savedCount > 0) {
-            window.toast?.success?.(`已保存 ${savedCount} 张截图到文件库`)
+          const totalSaved = savedImageCount + savedFileCount
+          if (totalSaved > 0) {
+            const parts: string[] = []
+            if (savedImageCount > 0) parts.push(`${savedImageCount} 张截图`)
+            if (savedFileCount > 0) parts.push(`${savedFileCount} 个文件`)
+            window.toast?.success?.(`已保存 ${parts.join('，')} 到文件库`)
           }
         }
 
