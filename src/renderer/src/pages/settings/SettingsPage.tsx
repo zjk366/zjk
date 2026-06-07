@@ -9,7 +9,6 @@ import {
   Cloud,
   Command,
   FileCode,
-  FolderSync,
   HardDrive,
   Info,
   MonitorCog,
@@ -30,7 +29,6 @@ import styled from 'styled-components'
 
 import AboutSettings from './AboutSettings'
 import ChannelsSettings from './ChannelsSettings'
-import VaultSettings from './VaultSettings'
 import DataSettings from './DataSettings/DataSettings'
 import DisplaySettings from './DisplaySettings/DisplaySettings'
 import DocProcessSettings from './DocProcessSettings'
@@ -89,12 +87,6 @@ const SettingsPage: FC = () => {
             <MenuItem className={isRoute('/settings/data')}>
               <HardDrive size={18} />
               {t('settings.data.title')}
-            </MenuItem>
-          </MenuItemLink>
-          <MenuItemLink to="/settings/vault">
-            <MenuItem className={isRoute('/settings/vault')}>
-              <FolderSync size={18} />
-              {t('settings.vault.title')}
             </MenuItem>
           </MenuItemLink>
           <Divider />
@@ -198,7 +190,6 @@ const SettingsPage: FC = () => {
             <Route path="quickAssistant" element={<QuickAssistantSettings />} />
             <Route path="selectionAssistant" element={<SelectionAssistantSettings />} />
             <Route path="data" element={<DataSettings />} />
-            <Route path="vault" element={<VaultSettings />} />
             <Route path="about" element={<AboutSettings />} />
           </Routes>
         </SettingContent>
