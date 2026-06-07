@@ -28,6 +28,24 @@ class MonitorService {
     if (this.initialized) return
     this.initialized = true
     EventEmitter.on(EVENT_NAMES.MESSAGE_COMPLETE, this.onMessageComplete)
+
+    // 监听主进程推送的实时终端输出
+    try {
+      window.electron?.ipcRenderer?.on('monitor:terminal-output', (_event: any, data: {
+        command: string; text: string; stream: 'stdout' | 'stderr'; sessionId: string
+      }) => {
+        // 首次收到输出 → 启动终端会话
+        if (this._screen.type !== 'terminal' || this._screen.command !== data.command) {
+          this._screen = { type: 'terminal', command: data.command, output: [] }
+        }
+        // 非空行才追加
+        if (data.text) {
+          (this._screen as any).output.push({ text: data.text, stream: data.stream })
+        }
+        EventEmitter.emit(MONITOR_EVENTS.SCREEN_UPDATE as any, this._screen)
+      })
+    } catch { /* 兼容无 IPC 环境 */ }
+
     logger.info('MonitorService initialized')
   }
 

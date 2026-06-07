@@ -5,13 +5,24 @@
  * 危险命令会触发用户确认弹窗。
  */
 import { dialog, shell } from 'electron'
-import { exec } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import * as z from 'zod'
 
+import { windowService } from '@main/services/WindowService'
 import { checkProtectedFileOperation, DEFAULT_TIMEOUT_MS, getCommandSummary, isDangerousCommand, logger, MAX_OUTPUT_LENGTH } from '../types'
+
+/** 向渲染进程推送终端输出行（实时流） */
+function pushTermLine(command: string, text: string, stream: 'stdout' | 'stderr', sessionId: string): void {
+  try {
+    const win = windowService.getMainWindow()
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('monitor:terminal-output', { command: command.slice(0, 200), text, stream, sessionId })
+    }
+  } catch { /* ok */ }
+}
 
 /** 从删除命令中提取文件路径 */
 function extractPathFromCommand(cmd: string): string | null {
@@ -162,19 +173,24 @@ export async function handleExecuteTool(args: unknown) {
     }
   }
 
-  // ── 执行命令 ──────────────────────────────────────
+  // ── 执行命令（实时流推送） ───────────────────────────
   const timeoutMs = Math.min(timeout || DEFAULT_TIMEOUT_MS, 120_000) // 最大 2 分钟
+  const sessionId = `term_${Date.now()}`
+
+  // 先通知渲染进程：终端会话开始
+  pushTermLine(command, '', 'stdout', sessionId)
 
   return new Promise((resolve) => {
     logger.info(`Executing: ${command} (cwd=${workDir}, timeout=${timeoutMs}ms)`)
 
-    const child = exec(`${command}`, {
-      cwd: workDir,
-      shell: process.platform === 'win32' ? process.env.COMSPEC || 'cmd.exe' : '/bin/bash',
-      timeout: timeoutMs,
-      maxBuffer: MAX_OUTPUT_LENGTH,
-      windowsHide: true,
-    })
+    const child = spawn(
+      process.platform === 'win32' ? process.env.COMSPEC || 'cmd.exe' : '/bin/bash',
+      process.platform === 'win32' ? ['/c', command] : ['-c', command],
+      {
+        cwd: workDir,
+        windowsHide: true,
+      }
+    )
 
     let stdout = ''
     let stderr = ''
@@ -183,24 +199,29 @@ export async function handleExecuteTool(args: unknown) {
     const timer = setTimeout(() => {
       killed = true
       child.kill('SIGTERM')
-      // Windows fallback
-      if (process.platform === 'win32') {
-        try {
-          process.kill(child.pid!)
-        } catch { /* ok */ }
-      }
     }, timeoutMs)
 
-    child.stdout?.on('data', (data: string) => {
-      stdout += data
+    child.stdout?.on('data', (data: Buffer) => {
+      const chunk = data.toString()
+      stdout += chunk
+      // 逐行推送实时输出
+      const lines = chunk.split('\n').filter(Boolean)
+      for (const line of lines) {
+        pushTermLine(command, line, 'stdout', sessionId)
+      }
       if (stdout.length > MAX_OUTPUT_LENGTH) {
-        stdout = stdout.slice(0, MAX_OUTPUT_LENGTH) + '\n... [输出已截断]'
+        pushTermLine(command, '... [输出已截断]', 'stderr', sessionId)
         child.kill('SIGTERM')
       }
     })
 
-    child.stderr?.on('data', (data: string) => {
-      stderr += data
+    child.stderr?.on('data', (data: Buffer) => {
+      const chunk = data.toString()
+      stderr += chunk
+      const lines = chunk.split('\n').filter(Boolean)
+      for (const line of lines) {
+        pushTermLine(command, line, 'stderr', sessionId)
+      }
     })
 
     child.on('close', (code) => {
