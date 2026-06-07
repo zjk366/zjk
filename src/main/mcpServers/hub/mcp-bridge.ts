@@ -189,7 +189,7 @@ export const callMcpTool = async (nameOrId: string, params: unknown, callId?: st
           type: 'resource' as const,
           resource: { uri: `file://${fp.replace(/\\/g, '/')}`, mimeType: 'image/png' }
         }))
-        const textSummary = `[System: 截图已保存至 ${savedPaths[0]}。摘要: 页面快照]`
+        const textSummary = `[System: VFS URI: cs-vfs://${fileIds[0]}。摘要: 页面快照]`
         // 保留原始图片数据 + 添加 resource 文件引用 + 文字摘要
         // 原始 image 数据保留后，渲染进程的 extractImagesFromToolOutput 能提取并展示到聊天
         const originalContent = result.content || []
