@@ -329,48 +329,42 @@ export function convertMcpToolsToAiSdkTools(mcpTools: MCPTool[], allowedTools?: 
           }
         }
 
-        // 记录到监控室日志 + 实时屏幕
-        if (!result.isError) {
-          try {
-            const svc = MonitorService.getInstance()
-            const resultContent = (result as any)?.content as any[] | undefined
-            let desc = mcpTool.name
+        // 记录到监控室日志 + 实时屏幕（不论成功/失败都显示）
+        try {
+          const svc = MonitorService.getInstance()
+          const resultContent = (result as any)?.content as any[] | undefined
+          const hasImage = Array.isArray(resultContent) && resultContent.some((c: any) => c.type === 'image' && c.data)
+          const hasText = Array.isArray(resultContent) && resultContent.some((c: any) => c.type === 'text')
+          const cmd = (params as any)?.command || ''
+          let desc = mcpTool.name
+          const isBlocked = result.isError
 
+          if (cmd) {
+            // 终端命令
+            desc = `终端命令: ${cmd.slice(0, 80)}`
+            svc.startTerminalSession(cmd.slice(0, 200))
             if (Array.isArray(resultContent)) {
-              // 从结果内容推断操作类型（不依赖 toolName，兼容 hub exec/invoke）
-              const hasImage = resultContent.some((c: any) => c.type === 'image' && c.data)
-              const hasText = resultContent.some((c: any) => c.type === 'text' && c.text?.length > 10)
-              const cmd = (params as any)?.command || ''
-
-              if (cmd) {
-                // 终端命令
-                desc = `终端命令: ${cmd.slice(0, 80)}`
-                const text = resultContent.filter((c: any) => c.type === 'text').map((c: any) => c.text).join('\n')
-                svc.startTerminalSession(cmd.slice(0, 200))
-                const lines = text.split('\n').filter(Boolean).slice(0, 80)
-                for (const line of lines) {
-                  svc.appendTerminalLine(line, /error|error/i.test(line) ? 'stderr' : 'stdout')
-                }
-              } else if (hasImage) {
-                // 浏览器截图/图片
-                const imgItem = resultContent.find((c: any) => c.type === 'image' && c.data)
-                if (imgItem?.data) {
-                  svc.setBrowserImage(imgItem.data, (params as any)?.url || (params as any)?.name || 'browser')
-                }
-                desc = `截图 ${(params as any)?.url || ''}`
-              } else if (hasText) {
-                // 根据参数推断操作类型
-                const fp = (params as any)?.file_path || (params as any)?.path || ''
-                if (fp) {
-                  desc = (mcpTool.name.includes('read') || resultContent.some((c: any) => (c.text || '').startsWith('File:')))
-                    ? `读取 ${fp}` : `操作 ${fp}`
-                }
+              const text = resultContent.filter((c: any) => c.type === 'text').map((c: any) => c.text).join('\n')
+              const lines = text.split('\n').filter(Boolean).slice(0, 80)
+              for (const line of lines) {
+                svc.appendTerminalLine(line, /error|error/i.test(line) ? 'stderr' : 'stdout')
               }
             }
+            if (isBlocked) svc.appendTerminalLine('⛔ 操作被安全机制拦截', 'stderr')
+          } else if (hasImage) {
+            // 浏览器截图
+            const imgItem = Array.isArray(resultContent) && resultContent.find((c: any) => c.type === 'image' && c.data)
+            if (imgItem?.data) {
+              svc.setBrowserImage(imgItem.data, (params as any)?.url || (params as any)?.name || 'browser')
+            }
+            desc = `截图 ${(params as any)?.url || ''}`
+          } else if (hasText) {
+            const fp = (params as any)?.file_path || (params as any)?.path || ''
+            if (fp) desc = `操作 ${fp}`
+          }
 
-            svc.addLog(desc.slice(0, 120), 'ok', { source: mcpTool.serverName })
-          } catch { /* 监控日志不影响主流程 */ }
-        }
+          svc.addLog(desc.slice(0, 120), isBlocked ? 'blocked' : 'ok', { source: mcpTool.serverName })
+        } catch { /* 监控日志不影响主流程 */ }
 
         // 返回工具执行结果
         return result
