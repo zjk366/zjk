@@ -38,7 +38,8 @@ export function createInMemoryMCPServer(
       return new FetchServer().server
     }
     case BuiltinMCPServerNames.filesystem: {
-      return new FileSystemServer(resolveFilesystemBaseDir(args, envs)).server
+      // unrestricted = true: AI 可访问工作区外路径，但系统保护路径依然禁止
+      return new FileSystemServer(resolveFilesystemBaseDir(args, envs), true).server
     }
     case BuiltinMCPServerNames.difyKnowledge: {
       const difyKey = envs.DIFY_KEY

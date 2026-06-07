@@ -79,17 +79,74 @@ function isPathWithinRoot(targetPath: string, rootPath: string): boolean {
   return relativePath !== '' && !relativePath.startsWith('..') && !path.isAbsolute(relativePath)
 }
 
-// Security validation
+// ─── 系统保护路径（Windows）───────────────────────────
+
+/** 受保护的 Windows 系统目录，禁止 AI 操作 */
+const SYSTEM_PROTECTED_DIRS: string[] = [
+  ...(() => {
+    const dirs = new Set<string>()
+    for (const key of ['WINDIR', 'SystemRoot', 'ProgramFiles', 'ProgramFiles(x86)', 'ProgramData', 'ALLUSERSPROFILE']) {
+      const val = process.env[key]
+      if (val) dirs.add(path.resolve(val).toLowerCase())
+    }
+    return [...dirs]
+  })(),
+  // 硬编码兜底
+  'c:\\windows',
+  'c:\\program files',
+  'c:\\program files (x86)',
+  'c:\\programdata',
+  'c:\\system volume information',
+  'c:\\$recycle.bin',
+  'c:\\recovery',
+  'c:\\config.msi',
+]
+
+/** 检查路径是否受系统保护 */
+export function isSystemProtectedPath(targetPath: string): boolean {
+  const resolved = path.resolve(targetPath).toLowerCase()
+  // 拒绝根目录本身（防止对整个 C:\ 操作）
+  if (/^[a-z]:\\?$/.test(resolved)) return true
+  for (const dir of SYSTEM_PROTECTED_DIRS) {
+    if (!dir) continue
+    if (resolved === dir || resolved.startsWith(dir + path.sep)) return true
+  }
+  return false
+}
+
+// ─── 安全验证 ────────────────────────────────────────
+
+/**
+ * 验证路径安全性。
+ *
+ * @param requestedPath - 用户请求的路径
+ * @param baseDir - 工作区根目录。传空字符串 '' 表示不限制工作区边界
+ * @returns 解析后的安全绝对路径
+ */
 export async function validatePath(requestedPath: string, baseDir?: string): Promise<string> {
   const expandedPath = expandHome(requestedPath)
-  const root = expandHome(baseDir ?? process.cwd())
-  const absolute = path.isAbsolute(expandedPath) ? path.resolve(expandedPath) : path.resolve(root, expandedPath)
+  const absolute = path.isAbsolute(expandedPath)
+    ? path.resolve(expandedPath)
+    : baseDir
+      ? path.resolve(expandHome(baseDir), expandedPath)
+      : path.resolve(expandedPath)
 
-  const resolvedRoot = await resolveRealOrNearestExistingPath(path.resolve(root))
   const resolvedPath = await resolveRealOrNearestExistingPath(absolute)
 
-  if (!isPathWithinRoot(resolvedPath, resolvedRoot)) {
-    throw new Error(`Access denied: Path is outside the configured workspace root: ${requestedPath}`)
+  // 系统保护路径检查（始终生效）
+  if (isSystemProtectedPath(resolvedPath)) {
+    throw new Error(
+      `拒绝访问：无法操作系统保护路径 "${requestedPath}"。` +
+      '为防止损坏系统，AI 不能读取或修改 Windows 系统目录下的文件。'
+    )
+  }
+
+  // 工作区边界检查（仅在 baseDir 非空时启用）
+  if (baseDir) {
+    const resolvedRoot = await resolveRealOrNearestExistingPath(path.resolve(expandHome(baseDir)))
+    if (!isPathWithinRoot(resolvedPath, resolvedRoot)) {
+      throw new Error(`拒绝访问：路径 "${requestedPath}" 超出了配置的工作区根目录范围。`)
+    }
   }
 
   return resolvedPath

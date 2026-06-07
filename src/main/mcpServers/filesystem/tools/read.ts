@@ -71,7 +71,7 @@ export async function handleReadTool(args: unknown, baseDir: string) {
 
   // Format output with line numbers and truncate long lines
   const output: string[] = []
-  const relativePath = path.relative(baseDir, validPath)
+  const relativePath = baseDir ? path.relative(baseDir, validPath) : validPath
 
   output.push(`File: ${relativePath}`)
   if (offset > 0 || limit < lines.length) {

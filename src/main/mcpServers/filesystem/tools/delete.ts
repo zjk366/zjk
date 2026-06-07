@@ -1,3 +1,4 @@
+import { dialog } from 'electron'
 import fs from 'fs/promises'
 import path from 'path'
 import * as z from 'zod'
@@ -48,7 +49,33 @@ export async function handleDeleteTool(args: unknown, baseDir: string) {
   }
 
   const isDirectory = stats.isDirectory()
-  const relativePath = path.relative(baseDir, validPath)
+  const relativePath = baseDir ? path.relative(baseDir, validPath) : validPath
+
+  // ── 用户确认弹窗 ──────────────────────────────────
+  const itemName = path.basename(validPath)
+  const typeLabel = isDirectory ? '目录' : '文件'
+  const detail = isDirectory && recursive
+    ? `路径: ${validPath}\n\n此 ${typeLabel} 及其所有内容将被永久删除！\nAI 请求的删除操作，请确认是否允许。`
+    : `路径: ${validPath}\n\n此 ${typeLabel} 将被永久删除！\nAI 请求的删除操作，请确认是否允许。`
+
+  const confirmResult = await dialog.showMessageBox({
+    type: 'warning',
+    title: `确认删除 ${typeLabel}`,
+    message: `AI 请求删除 "${itemName}"`,
+    detail,
+    buttons: ['取消', '确认删除'],
+    defaultId: 0,
+    cancelId: 0,
+  })
+
+  if (confirmResult.response !== 1) {
+    logger.info('Delete cancelled by user', { path: validPath })
+    return {
+      content: [{ type: 'text', text: `用户已取消删除操作: ${relativePath}` }],
+      isError: true
+    }
+  }
+  // ──────────────────────────────────────────────────
 
   // Perform deletion
   try {

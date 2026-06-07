@@ -68,7 +68,7 @@ export async function handleWriteTool(args: unknown, baseDir: string) {
   })
 
   // Format output
-  const relativePath = path.relative(baseDir, validPath)
+  const relativePath = baseDir ? path.relative(baseDir, validPath) : validPath
   const action = isOverwrite ? 'Updated' : 'Created'
   const lines = parsed.data.content.split('\n').length
 

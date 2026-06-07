@@ -60,7 +60,7 @@ export async function handleEditTool(args: unknown, baseDir: string) {
 
         logger.info('File created', { path: validPath })
 
-        const relativePath = path.relative(baseDir, validPath)
+        const relativePath = (baseDir ? path.relative(baseDir, validPath) : validPath)
         return {
           content: [
             {
@@ -84,7 +84,7 @@ export async function handleEditTool(args: unknown, baseDir: string) {
 
     logger.info('File overwritten', { path: validPath })
 
-    const relativePath = path.relative(baseDir, validPath)
+    const relativePath = (baseDir ? path.relative(baseDir, validPath) : validPath)
     return {
       content: [
         {
@@ -111,7 +111,7 @@ export async function handleEditTool(args: unknown, baseDir: string) {
   const newLines = newContent.split('\n').length
   const lineDiff = newLines - oldLines
 
-  const relativePath = path.relative(baseDir, validPath)
+  const relativePath = (baseDir ? path.relative(baseDir, validPath) : validPath)
   let diffSummary = `Edited: ${relativePath}`
   if (lineDiff > 0) {
     diffSummary += `\n+${lineDiff} lines`

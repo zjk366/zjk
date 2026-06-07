@@ -24,12 +24,16 @@ import { expandHome, logger, normalizePath } from './types'
 
 export class FileSystemServer {
   public server: Server
+  /** 空字符串表示无限制模式（跳过 workspace 边界检查，但系统保护路径依然生效） */
   private baseDir: string
 
-  constructor(baseDir?: string) {
+  constructor(baseDir?: string, unrestricted = false) {
     const expandedBaseDir = baseDir ? expandHome(baseDir) : undefined
 
-    if (expandedBaseDir && path.isAbsolute(expandedBaseDir)) {
+    if (unrestricted) {
+      this.baseDir = ''  // 空字符串 = 验证时跳过边界检查
+      logger.info('FileSystem MCP: unrestricted mode enabled (system protected paths still enforced)')
+    } else if (expandedBaseDir && path.isAbsolute(expandedBaseDir)) {
       this.baseDir = normalizePath(path.resolve(expandedBaseDir))
       logger.info(`Using provided baseDir for filesystem MCP: ${this.baseDir}`)
     } else {
