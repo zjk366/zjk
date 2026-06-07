@@ -66,15 +66,13 @@ class MemoryBankService {
     this.initialized = false
   }
 
-  /** 启动时：检查所有未总结的日志 → 调 AI 逐话题总结 */
+  /** 启动时：检查是否有未总结的日志 → 合并为一条全局记忆 */
   private async summarizePendingLogs(): Promise<void> {
     try {
       const allLogs: ConversationLog[] = await db.table('conversation_logs').toArray()
-      const topicIds = [...new Set(allLogs.map((l) => l.topicId))]
-      for (const tid of topicIds) {
-        logger.info(`Found pending logs for topic ${tid}, triggering AI summary...`)
-        await this.triggerAISummary(tid)
-      }
+      if (allLogs.length === 0) return
+      logger.info(`Found ${allLogs.length} pending log(s), triggering global AI summary...`)
+      await this.triggerAISummary('__all__')
     } catch (err) {
       logger.error('Failed to summarize pending logs:', err)
     }
@@ -149,41 +147,37 @@ class MemoryBankService {
     }
   }
 
-  /** 3 分钟无操作 → 调 AI 总结对话 */
+  /** 闲置超时 → 调 AI 总结所有话题对话（合并为一条全局记忆） */
   private async triggerAISummary(topicId: string): Promise<void> {
     try {
-      // 读取该话题的所有原始对话记录
-      const logs: ConversationLog[] = await db.table('conversation_logs')
-        .where('topicId').equals(topicId).toArray()
-
-      if (logs.length === 0 || logs.length <= this.lastSavedLogCount) return
-
-      this.lastSavedLogCount = logs.length
+      // 读取 ALL 原始对话记录（不再按话题区分）
+      const allLogs: ConversationLog[] = await db.table('conversation_logs').toArray()
+      if (allLogs.length === 0) return
 
       // 组装对话文本
-      const conversationText = logs.map((l, i) =>
-        `[用户]: ${l.userContent}\n[助手]: ${l.assistantContent}`
+      const conversationText = allLogs.map((l, i) =>
+        `[对话 ${i + 1}]\n[用户]: ${l.userContent}\n[助手]: ${l.assistantContent}`
       ).join('\n\n')
 
-      // 获取当前模型（默认助手使用的模型）
+      // 获取当前模型
       const assistant = store.getState().assistants.defaultAssistant
       const model = assistant?.model || getDefaultModel()
       if (!model) {
         logger.warn('No model available for AI summary, using local summary')
-        await this.saveLocalSummary(topicId, logs)
+        await this.saveLocalSummary('__all__', allLogs)
         return
       }
 
       // 调 AI 总结
-      const systemPrompt = `你是一个对话记忆总结助手。请对以下对话进行精炼总结，提取关键信息作为长期记忆保存。
+      const systemPrompt = `你是一个对话记忆总结助手。请对以下所有对话进行精炼总结，提取关键信息作为长期记忆保存。
 
 严格按要求输出：
 1. 【用户信息】提取用户提到的个人偏好、项目信息、身份背景等可识别的用户画像信息
 2. 【技术要点】用户关心的技术问题、解决方案、代码片段的关键思路
 3. 【结论/决策】对话中达成的结论、做出的决策、待办事项
-4. 【上下文关键词】生成 3-8 个关键词用于后续检索（用逗号分隔）
 
-要求：总字数控制在 200 字以内，语言简洁，保留可操作的细节。`
+要求：总字数控制在 300 字以内，语言简洁，保留可操作的细节。
+这是之前所有对话的综合，请确保覆盖所有重要信息，不要遗漏。`
 
       const summary = await fetchGenerate({
         prompt: systemPrompt,
@@ -192,15 +186,14 @@ class MemoryBankService {
       })
 
       if (summary) {
-        await this.saveMemory(topicId, summary, conversationText)
+        await this.saveMemory('__all__', summary, conversationText)
       } else {
-        await this.saveLocalSummary(topicId, logs)
+        await this.saveLocalSummary('__all__', allLogs)
       }
     } catch (err) {
       logger.error('AI summary failed, using local summary:', err)
-      const logs: ConversationLog[] = await db.table('conversation_logs')
-        .where('topicId').equals(topicId).toArray()
-      if (logs.length > 0) await this.saveLocalSummary(topicId, logs)
+      const allLogs: ConversationLog[] = await db.table('conversation_logs').toArray()
+      if (allLogs.length > 0) await this.saveLocalSummary('__all__', allLogs)
     }
   }
 
@@ -243,64 +236,46 @@ class MemoryBankService {
     }, 2000)
   }
 
-  /** 检查两条记忆的关键词是否有重叠（用于同类型信息合并） */
-  private hasKeywordOverlap(a: string[], b: string[]): boolean {
-    return a.some((ka) => b.some((kb) => ka.includes(kb) || kb.includes(ka)))
-  }
-
   private async saveMemory(topicId: string, summary: string, fullText: string): Promise<void> {
     if (!summary) return
 
     const keywords = this.extractKeywords(fullText)
     const table = db.table<Memory>('memories')
+    const now = new Date().toISOString()
+    const expiresAt = new Date(Date.now() + MEMORY_CONFIG.DEFAULT_EXPIRE_DAYS * 24 * 60 * 60 * 1000).toISOString()
 
-    // 1) 同话题更新
-    const sameTopic = (await table.toArray()).find((m) => m.topicId === topicId && !m.isDeleted)
-    if (sameTopic) {
-      const now = new Date().toISOString()
-      const expiresAt = new Date(Date.now() + MEMORY_CONFIG.DEFAULT_EXPIRE_DAYS * 24 * 60 * 60 * 1000).toISOString()
-      await table.update(sameTopic.id, { summary, keywords, lastReferencedAt: now, expiresAt })
-      this.debounceSyncToDisk()
-      await db.table('conversation_logs').where('topicId').equals(topicId).delete()
-      return
-    }
+    // 始终合并到同一条活跃记忆（按最后更新时间倒序取第一条）
+    // 这样所有对话内容最终汇总为一条综合记忆
+    const existing = (await table.toArray())
+      .filter((m) => !m.isDeleted)
+      .sort((a, b) => new Date(b.lastReferencedAt).getTime() - new Date(a.lastReferencedAt).getTime())[0]
 
-    // 2) 关键词重叠更新（同类型信息跨话题合并）
-    const allActive = (await table.toArray()).filter((m) => !m.isDeleted)
-    const overlap = allActive.find((m) => this.hasKeywordOverlap(m.keywords, keywords))
-    if (overlap) {
-      const now = new Date().toISOString()
-      // 合并摘要：用更新的覆盖旧的
-      const mergedSummary = summary
-      // 合并关键词
-      const mergedKeywords = [...new Set([...overlap.keywords, ...keywords])].slice(0, MEMORY_CONFIG.MAX_KEYWORDS)
-      const expiresAt = new Date(Date.now() + MEMORY_CONFIG.DEFAULT_EXPIRE_DAYS * 24 * 60 * 60 * 1000).toISOString()
-      await table.update(overlap.id, {
+    if (existing) {
+      // 合并摘要：新内容追加到旧摘要前（最新的放前面）
+      const mergedSummary = summary.length > 20
+        ? summary
+        : `${summary}\n${existing.summary}`
+      const mergedKeywords = [...new Set([...keywords, ...existing.keywords])].slice(0, MEMORY_CONFIG.MAX_KEYWORDS)
+      await table.update(existing.id, {
         summary: mergedSummary,
         keywords: mergedKeywords,
         lastReferencedAt: now,
         expiresAt,
       })
-      this.debounceSyncToDisk()
-      await db.table('conversation_logs').where('topicId').equals(topicId).delete()
-      return
+    } else {
+      await table.add({
+        id: `mem_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        topicId, summary, keywords, createdAt: now, lastReferencedAt: now,
+        isDeleted: false, expiresAt, sourceAssistantName: '',
+      })
     }
-
-    // 3) 全新记忆
-    const now = new Date().toISOString()
-    const expiresAt = new Date(Date.now() + MEMORY_CONFIG.DEFAULT_EXPIRE_DAYS * 24 * 60 * 60 * 1000).toISOString()
-    await table.add({
-      id: `mem_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-      topicId, summary, keywords, createdAt: now, lastReferencedAt: now,
-      isDeleted: false, expiresAt, sourceAssistantName: '',
-    })
 
     // 同步到磁盘（供主进程 MCP 读取）
     this.debounceSyncToDisk()
 
-    // 清除原始日志
-    await db.table('conversation_logs').where('topicId').equals(topicId).delete()
-    logger.info(`Memory saved for topic ${topicId}`)
+    // 清除所有已总结的原始日志
+    await db.table('conversation_logs').clear()
+    logger.info(`Memory saved (global summary)`)
   }
 
   // ---- 本地降级总结 ----
