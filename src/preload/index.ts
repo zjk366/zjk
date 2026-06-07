@@ -861,16 +861,43 @@ const api = {
 // Use `contextBridge` APIs to expose Electron APIs to
 // renderer only if context isolation is enabled, otherwise
 // just add to the DOM global.
+// ── 屏幕监控桥接 API ──────────────────────────────
+const screenMonitorApi = {
+  start: () => ipcRenderer.send('screen-monitor:start'),
+  stop: () => ipcRenderer.send('screen-monitor:stop'),
+  setFps: (fps: number) => ipcRenderer.send('screen-monitor:set-fps', fps),
+  _frameListeners: new Set<(data: { dataUrl: string; timestamp: number }) => void>(),
+
+  onFrame(cb: (data: { dataUrl: string; timestamp: number }) => void): void {
+    if (this._frameListeners.size === 0) {
+      ipcRenderer.on('screen-monitor:frame', (_event, data) => {
+        for (const fn of this._frameListeners) fn(data)
+      })
+    }
+    this._frameListeners.add(cb)
+  },
+
+  offFrame(cb: (data: { dataUrl: string; timestamp: number }) => void): void {
+    this._frameListeners.delete(cb)
+    if (this._frameListeners.size === 0) {
+      ipcRenderer.removeAllListeners('screen-monitor:frame')
+    }
+  },
+}
+
+// ── 暴露到渲染进程 ─────────────────────────────────
 if (process.contextIsolated) {
   try {
     contextBridge.exposeInMainWorld('electron', electronAPI)
     contextBridge.exposeInMainWorld('api', api)
+    contextBridge.exposeInMainWorld('screenMonitor', screenMonitorApi)
   } catch (error) {
     console.error('[Preload]Failed to expose APIs:', error as Error)
   }
 } else {
   window.electron = electronAPI
   window.api = api
+  ;(window as any).screenMonitor = screenMonitorApi
 }
 
 export type WindowApiType = typeof api

@@ -65,19 +65,20 @@ const MonitorRoomPage: FC = () => {
     // 初始屏幕状态
     setScreen(serviceRef.current.screen)
 
-    // 启动桌面截屏
-    window.electron?.ipcRenderer?.send('screen-monitor:start')
+    // 启动桌面截屏（通过预加载桥接 API）
+    const sm = (window as any).screenMonitor
+    sm?.start()
 
     // 监听桌面帧
-    const cleanup = window.electron?.ipcRenderer?.on('screen-monitor:frame', (_event: any, frame: { dataUrl: string; timestamp: number }) => {
-      // 只在空闲或桌面模式下更新桌面帧
+    const onFrame = (frame: { dataUrl: string; timestamp: number }) => {
       setScreen((prev) => {
         if (prev.type === 'idle' || prev.type === 'desktop') {
           return { type: 'desktop', dataUrl: frame.dataUrl, timestamp: frame.timestamp }
         }
         return prev
       })
-    })
+    }
+    sm?.onFrame(onFrame)
 
     const onLogAdded = (entry: MonitorLogEntry) => setLogs((prev) => [...prev, entry])
     const onLogRetro = (entry: MonitorLogEntry) => setLogs((prev) => prev.map((l) => (l.id === entry.id ? entry : l)))
@@ -91,8 +92,9 @@ const MonitorRoomPage: FC = () => {
 
     return () => {
       // 停止桌面截屏
-      window.electron?.ipcRenderer?.send('screen-monitor:stop')
-      cleanup?.()
+      const sm = (window as any).screenMonitor
+      sm?.offFrame(onFrame)
+      sm?.stop()
 
       ;(async () => {
         const u1 = await off1; const u2 = await off2; const u3 = await off3; const u4 = await off4
