@@ -243,25 +243,57 @@ class MemoryBankService {
     }, 2000)
   }
 
+  /** 检查两条记忆的关键词是否有重叠（用于同类型信息合并） */
+  private hasKeywordOverlap(a: string[], b: string[]): boolean {
+    return a.some((ka) => b.some((kb) => ka.includes(kb) || kb.includes(ka)))
+  }
+
   private async saveMemory(topicId: string, summary: string, fullText: string): Promise<void> {
     if (!summary) return
 
     const keywords = this.extractKeywords(fullText)
     const table = db.table<Memory>('memories')
-    const existing = (await table.toArray()).find((m) => m.topicId === topicId && !m.isDeleted)
 
+    // 1) 同话题更新
+    const sameTopic = (await table.toArray()).find((m) => m.topicId === topicId && !m.isDeleted)
+    if (sameTopic) {
+      const now = new Date().toISOString()
+      const expiresAt = new Date(Date.now() + MEMORY_CONFIG.DEFAULT_EXPIRE_DAYS * 24 * 60 * 60 * 1000).toISOString()
+      await table.update(sameTopic.id, { summary, keywords, lastReferencedAt: now, expiresAt })
+      this.debounceSyncToDisk()
+      await db.table('conversation_logs').where('topicId').equals(topicId).delete()
+      return
+    }
+
+    // 2) 关键词重叠更新（同类型信息跨话题合并）
+    const allActive = (await table.toArray()).filter((m) => !m.isDeleted)
+    const overlap = allActive.find((m) => this.hasKeywordOverlap(m.keywords, keywords))
+    if (overlap) {
+      const now = new Date().toISOString()
+      // 合并摘要：用更新的覆盖旧的
+      const mergedSummary = summary
+      // 合并关键词
+      const mergedKeywords = [...new Set([...overlap.keywords, ...keywords])].slice(0, MEMORY_CONFIG.MAX_KEYWORDS)
+      const expiresAt = new Date(Date.now() + MEMORY_CONFIG.DEFAULT_EXPIRE_DAYS * 24 * 60 * 60 * 1000).toISOString()
+      await table.update(overlap.id, {
+        summary: mergedSummary,
+        keywords: mergedKeywords,
+        lastReferencedAt: now,
+        expiresAt,
+      })
+      this.debounceSyncToDisk()
+      await db.table('conversation_logs').where('topicId').equals(topicId).delete()
+      return
+    }
+
+    // 3) 全新记忆
     const now = new Date().toISOString()
     const expiresAt = new Date(Date.now() + MEMORY_CONFIG.DEFAULT_EXPIRE_DAYS * 24 * 60 * 60 * 1000).toISOString()
-
-    if (existing) {
-      await table.update(existing.id, { summary, keywords, lastReferencedAt: now, expiresAt })
-    } else {
-      await table.add({
-        id: `mem_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-        topicId, summary, keywords, createdAt: now, lastReferencedAt: now,
-        isDeleted: false, expiresAt, sourceAssistantName: '',
-      })
-    }
+    await table.add({
+      id: `mem_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      topicId, summary, keywords, createdAt: now, lastReferencedAt: now,
+      isDeleted: false, expiresAt, sourceAssistantName: '',
+    })
 
     // 同步到磁盘（供主进程 MCP 读取）
     this.debounceSyncToDisk()
