@@ -79,6 +79,13 @@ const FILE_CMD_PATTERNS = [
   /^cat\s+(.+?)(?:\s+-|\||$)/im,
 ]
 
+/** 展开命令中的环境变量（%VAR% → 值） */
+function resolveEnvVarsInCmd(cmd: string): string {
+  return cmd.replace(/%([^%]+)%/g, (_, key: string) => {
+    return process.env[key] || `%${key}%`
+  })
+}
+
 /**
  * 检测命令是否操作了受保护的系统路径。
  * 如果是，返回被操作的受保护文件路径列表；否则返回空数组。
@@ -86,8 +93,11 @@ const FILE_CMD_PATTERNS = [
 export function checkProtectedFileOperation(command: string): string[] {
   const violated: string[] = []
 
+  // 先展开环境变量再匹配，防止 %SystemRoot% 绕过
+  const expanded = resolveEnvVarsInCmd(command)
+
   for (const pattern of FILE_CMD_PATTERNS) {
-    const match = command.trim().match(pattern)
+    const match = expanded.trim().match(pattern)
     if (!match) continue
 
     // 提取路径参数

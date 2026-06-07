@@ -51,13 +51,22 @@ function normalizeWinPath(p: string): string {
   return s
 }
 
-/** 从字符串中提取所有 Windows 路径（形如 C:\xxx） */
+/** 展开命令中的环境变量（如 %SystemRoot% → C:\Windows） */
+function resolveEnvVars(text: string): string {
+  return text.replace(/%([^%]+)%/g, (_, key: string) => {
+    return process.env[key] || `%${key}%`
+  })
+}
+
+/** 从字符串中提取所有 Windows 路径（形如 C:\xxx，支持 %SystemRoot% 等变量） */
 function extractPaths(text: string): string[] {
   const paths: string[] = []
-  // 匹配所有 [A-Z]:\ 开头的路径（可能带引号）
+  // 先展开环境变量
+  const expanded = resolveEnvVars(text)
+  // 匹配所有 [A-Z]:\ 开头的路径
   const re = /['"]?([a-zA-Z]:\\(?:[^'"\s]+\\)*[^'"\s]*)/g
   let m: RegExpExecArray | null
-  while ((m = re.exec(text)) !== null) {
+  while ((m = re.exec(expanded)) !== null) {
     const p = normalizeWinPath(m[1])
     if (p.length > 3) paths.push(p)
   }
