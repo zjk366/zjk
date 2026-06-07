@@ -329,15 +329,37 @@ export function convertMcpToolsToAiSdkTools(mcpTools: MCPTool[], allowedTools?: 
           }
         }
 
-        // 记录到监控室日志
+        // 记录到监控室日志 + 实时屏幕
         if (!result.isError) {
           try {
             const svc = MonitorService.getInstance()
             const toolName = mcpTool.name
             let desc = toolName
+
             if (toolName === 'execute_command') {
               const cmd = (params as any)?.command || ''
               desc = `终端命令: ${cmd.slice(0, 80)}`
+              // 提取终端输出
+              const content = (result as any)?.content
+              if (Array.isArray(content)) {
+                const text = content.filter((c: any) => c.type === 'text').map((c: any) => c.text).join('\n')
+                svc.startTerminalSession(cmd.slice(0, 200))
+                // 提取输出行（从文本中提取 stdout 和 stderr 部分）
+                const lines = text.split('\n').filter(Boolean).slice(0, 80)
+                for (const line of lines) {
+                  svc.appendTerminalLine(line, line.includes('Error:') || line.includes('error:') ? 'stderr' : 'stdout')
+                }
+              }
+            } else if (toolName === 'screenshot' || toolName === 'CherryBrowserScreenshot') {
+              // 浏览器截图 → 推送到屏幕
+              const content = (result as any)?.content
+              if (Array.isArray(content)) {
+                const imgItem = content.find((c: any) => c.type === 'image' && c.data)
+                if (imgItem?.data) {
+                  const url = (params as any)?.url || (params as any)?.name || 'browser'
+                  svc.setBrowserImage(imgItem.data, url)
+                }
+              }
             } else if (toolName.includes('read')) {
               desc = `读取 ${(params as any)?.file_path || (params as any)?.path || ''}`
             } else if (toolName.includes('write') || toolName.includes('edit')) {
@@ -345,6 +367,7 @@ export function convertMcpToolsToAiSdkTools(mcpTools: MCPTool[], allowedTools?: 
             } else if (toolName.includes('delete')) {
               desc = `删除 ${(params as any)?.path || (params as any)?.file_path || ''}`
             }
+
             svc.addLog(desc.slice(0, 120), 'ok', { source: mcpTool.serverName })
           } catch { /* 监控日志不影响主流程 */ }
         }

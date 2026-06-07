@@ -1,10 +1,11 @@
 /**
  * 监控室（MonitorRoom）
  *
- * Step 2: 操作日志接入实时 IPC 订阅。
- * - 日志数据通过 MonitorService 获取
- * - 新增日志、回溯、停止均通过 EventEmitter 通信
- * - Skill 卡片和文件网格仍为静态占位（Step 3 实现）
+ * Step 3: 实时操作流 + 真实资源面板。
+ * - 左上：操作实时流（最新操作实时滚动）
+ * - 左下：Skill 卡片（来自 SkillsService）+ 文件网格（来自 MonitorService 关联文件）
+ *        + 仪表盘（来自 MonitorService 统计数据）
+ * - 右侧：操作日志（Step 2 实现）
  */
 import { ArrowLeft } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -13,77 +14,106 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import styled from 'styled-components'
 import { EventEmitter } from '@renderer/services/EventService'
-import type { MonitorLogEntry } from '@renderer/types/monitor'
+import type { MonitorLogEntry, ScreenContent } from '@renderer/types/monitor'
 import MonitorService, { MONITOR_EVENTS } from '@renderer/services/MonitorService'
+
+/** 缓存已获取的 skills（避免每次渲染都读） */
+let cachedSkills: { name: string; status: 'active' | 'idle' | 'error' }[] | null = null
+
+async function loadSkills(): Promise<typeof cachedSkills> {
+  if (cachedSkills) return cachedSkills
+  try {
+    const { default: SkillsService } = await import('@renderer/services/SkillsService')
+    const svc = SkillsService.getInstance()
+    const all = await svc.getAll()
+    cachedSkills = all.slice(0, 6).map((s) => ({
+      name: s.name,
+      status: s.isEnabled ? ('active' as const) : ('idle' as const),
+    }))
+    return cachedSkills
+  } catch { return null }
+}
 
 const MonitorRoomPage: FC = () => {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const [logs, setLogs] = useState<MonitorLogEntry[]>([])
+  const [screen, setScreen] = useState<ScreenContent>({ type: 'idle' })
+  const [skills, setSkills] = useState<{ name: string; status: 'active' | 'idle' | 'error' }[]>([])
+  const [skillsLoaded, setSkillsLoaded] = useState(false)
   const serviceRef = useRef(MonitorService.getInstance())
+  const screenRef = useRef<HTMLDivElement>(null)
+  const termEndRef = useRef<HTMLDivElement>(null)
 
-  // 初始化监控服务 + 订阅日志事件
+  // ── 仪表盘统计数据 ─────────────────────────────
+  const stats = useMemo(() => {
+    const total = logs.length
+    const blocked = logs.filter((l) => l.status === 'blocked').length
+    const retro = logs.filter((l) => l.status === 'retro').length
+    return { total, blocked, retro }
+  }, [logs])
+
+  // ── 初始化 ────────────────────────────────────
   useEffect(() => {
     const svc = serviceRef.current
     svc.init()
-
-    // 加载已有日志
     setLogs(svc.getAll())
 
-    // 订阅新日志
-    const onLogAdded = (entry: MonitorLogEntry) => {
-      setLogs((prev) => [...prev, entry])
-    }
-    const onLogRetro = (entry: MonitorLogEntry) => {
-      setLogs((prev) => prev.map((l) => (l.id === entry.id ? entry : l)))
-    }
-    const onRetroAll = () => {
-      setLogs((prev) => prev.map((l) => (l.status === 'ok' ? { ...l, status: 'retro' as const } : l)))
-    }
+    // 加载 skills
+    loadSkills().then((s) => { if (s) setSkills(s); setSkillsLoaded(true) })
+
+    const onLogAdded = (entry: MonitorLogEntry) => setLogs((prev) => [...prev, entry])
+    const onLogRetro = (entry: MonitorLogEntry) => setLogs((prev) => prev.map((l) => (l.id === entry.id ? entry : l)))
+    const onRetroAll = () => setLogs((prev) => prev.map((l) => (l.status === 'ok' ? { ...l, status: 'retro' as const } : l)))
+
+    // 初始屏幕状态
+    setScreen(serviceRef.current.screen)
+
+    const onLogAdded = (entry: MonitorLogEntry) => setLogs((prev) => [...prev, entry])
+    const onLogRetro = (entry: MonitorLogEntry) => setLogs((prev) => prev.map((l) => (l.id === entry.id ? entry : l)))
+    const onRetroAll = () => setLogs((prev) => prev.map((l) => (l.status === 'ok' ? { ...l, status: 'retro' as const } : l)))
+    const onScreenUpdate = (content: ScreenContent) => setScreen(content)
 
     const off1 = EventEmitter.on(MONITOR_EVENTS.LOG_ADDED as any, onLogAdded)
     const off2 = EventEmitter.on(MONITOR_EVENTS.LOG_RETRO as any, onLogRetro)
     const off3 = EventEmitter.on(MONITOR_EVENTS.LOG_RETRO_ALL as any, onRetroAll)
+    const off4 = EventEmitter.on(MONITOR_EVENTS.SCREEN_UPDATE as any, onScreenUpdate)
 
     return () => {
       ;(async () => {
-        const u1 = await off1; const u2 = await off2; const u3 = await off3
-        u1?.(); u2?.(); u3?.()
+        const u1 = await off1; const u2 = await off2; const u3 = await off3; const u4 = await off4
+        u1?.(); u2?.(); u3?.(); u4?.()
       })()
     }
   }, [])
 
-  // 处理回溯
-  const handleRetroAll = useCallback(() => {
-    serviceRef.current.retroAll()
-  }, [])
+  // 终端输出自动滚底
+  useEffect(() => {
+    if (screen.type === 'terminal' && termEndRef.current) {
+      termEndRef.current.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [screen])
 
-  const handleRetroOne = useCallback((logId: string) => {
-    serviceRef.current.retroLog(logId)
-  }, [])
+  // ── 获取关联文件（从日志中提取最近操作过的文件路径）───
+  const relatedFiles = useMemo(() => {
+    const paths = new Map<string, string>()
+    for (const l of [...logs].reverse()) {
+      if (l.filePath) {
+        const name = l.filePath.split('\\').pop() || l.filePath
+        if (!paths.has(name)) paths.set(name, l.filePath)
+      }
+    }
+    return [...paths.entries()].slice(0, 6).map(([name]) => ({
+      name,
+      type: name.endsWith('.png') || name.endsWith('.jpg') ? 'image' as const
+           : name.endsWith('.pdf') ? 'document' as const
+           : 'text' as const,
+    }))
+  }, [logs])
 
-  const handleStop = useCallback(() => {
-    serviceRef.current.stopCurrent()
-  }, [])
-
-  // 静态占位数据（Step 3 实现）
-  const staticSkills = useMemo<{ name: string; status: 'active' | 'idle' | 'error' }[]>(
-    () => [
-      { name: '@cherry/filesystem', status: 'active' },
-      { name: '@cherry/terminal', status: 'idle' },
-      { name: '@cherry/browser', status: 'idle' },
-    ],
-    [],
-  )
-
-  const staticFiles = useMemo<{ name: string; type: string }[]>(
-    () => [
-      { name: 'hosts.txt', type: 'text' },
-      { name: 'screenshot_2026-06-07.png', type: 'image' },
-      { name: 'report.pdf', type: 'document' },
-    ],
-    [],
-  )
+  const handleRetroAll = useCallback(() => { serviceRef.current.retroAll() }, [])
+  const handleRetroOne = useCallback((logId: string) => { serviceRef.current.retroLog(logId) }, [])
+  const handleStop = useCallback(() => { serviceRef.current.stopCurrent() }, [])
 
   return (
     <PageContainer>
@@ -112,14 +142,45 @@ const MonitorRoomPage: FC = () => {
       <MainArea>
         {/* ===== 左侧区域 ===== */}
         <LeftColumn>
-          {/* 左上：实时监控屏幕 */}
+          {/* 左上：实时屏幕 */}
           <ScreenPanel>
             <ScreenHeader>{t('monitor.screenLive')}</ScreenHeader>
-            <ScreenBody>
-              <ScreenPlaceholder>
-                <ScreenGlow />
-                <ScreenText>{t('monitor.screenWaiting')}</ScreenText>
-              </ScreenPlaceholder>
+            <ScreenBody ref={screenRef}>
+              {screen.type === 'idle' && (
+                <ScreenPlaceholder>
+                  <ScreenGlow />
+                  <ScreenText>{t('monitor.screenWaiting')}</ScreenText>
+                </ScreenPlaceholder>
+              )}
+
+              {screen.type === 'terminal' && (
+                <TerminalView>
+                  <TermHeader>{screen.command}</TermHeader>
+                  {screen.output.map((line, i) => (
+                    <TermLine key={i} $stderr={line.stream === 'stderr'}>
+                      {line.text}
+                    </TermLine>
+                  ))}
+                  <TermCursor />
+                  <div ref={termEndRef} />
+                </TerminalView>
+              )}
+
+              {screen.type === 'browser' && (
+                <BrowserView>
+                  <BrowserHeader>{screen.url}</BrowserHeader>
+                  <BrowserImg
+                    src={`data:image/png;base64,${screen.image}`}
+                    alt={screen.url}
+                  />
+                </BrowserView>
+              )}
+
+              {screen.type === 'message' && (
+                <ScreenPlaceholder>
+                  <ScreenText>{screen.text}</ScreenText>
+                </ScreenPlaceholder>
+              )}
             </ScreenBody>
           </ScreenPanel>
 
@@ -134,7 +195,11 @@ const MonitorRoomPage: FC = () => {
                 {t('monitor.relatedSkills')}
               </SectionTitle>
               <SkillGrid>
-                {staticSkills.map((sk) => (
+                {!skillsLoaded ? (
+                  <SkillName style={{ color: 'var(--color-text-3)', fontSize: 11 }}>加载中...</SkillName>
+                ) : skills.length === 0 ? (
+                  <SkillName style={{ color: 'var(--color-text-3)', fontSize: 11 }}>暂无关联 Skills</SkillName>
+                ) : skills.map((sk) => (
                   <SkillCard key={sk.name} $status={sk.status}>
                     <SkillName>{sk.name}</SkillName>
                     <SkillStatus $status={sk.status}>
@@ -152,7 +217,9 @@ const MonitorRoomPage: FC = () => {
                 {t('monitor.relatedFiles')}
               </SectionTitle>
               <FileGrid>
-                {staticFiles.map((f) => (
+                {relatedFiles.length === 0 ? (
+                  <FileName style={{ color: 'var(--color-text-3)', fontSize: 11 }}>暂无关联文件</FileName>
+                ) : relatedFiles.map((f) => (
                   <FileCell key={f.name}>
                     <FileIcon $type={f.type}>
                       {f.type === 'image' ? '🖼' : f.type === 'document' ? '📄' : '📝'}
@@ -163,7 +230,7 @@ const MonitorRoomPage: FC = () => {
               </FileGrid>
             </SectionBlock>
 
-            {/* ---- 仪表盘占位 ---- */}
+            {/* ---- 仪表盘 ---- */}
             <SectionBlock>
               <SectionTitle>
                 <DashDot />
@@ -171,15 +238,15 @@ const MonitorRoomPage: FC = () => {
               </SectionTitle>
               <DashboardRow>
                 <DashItem>
-                  <DashValue>—</DashValue>
+                  <DashValue>{stats.total}</DashValue>
                   <DashLabel>{t('monitor.totalOps')}</DashLabel>
                 </DashItem>
                 <DashItem>
-                  <DashValue>—</DashValue>
+                  <DashValue>{stats.blocked}</DashValue>
                   <DashLabel>{t('monitor.blockedOps')}</DashLabel>
                 </DashItem>
                 <DashItem>
-                  <DashValue>—</DashValue>
+                  <DashValue>{stats.retro}</DashValue>
                   <DashLabel>{t('monitor.retroCount')}</DashLabel>
                 </DashItem>
               </DashboardRow>
@@ -340,9 +407,14 @@ const ScreenHeader = styled.div`
 const ScreenBody = styled.div`
   flex: 1;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  flex-direction: column;
+  overflow-y: auto;
+  padding: 6px 0;
   position: relative;
+  min-height: 0;
+
+  &::-webkit-scrollbar { width: 3px; }
+  &::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.06); border-radius: 2px; }
 `
 
 const ScreenPlaceholder = styled.div`
@@ -351,6 +423,73 @@ const ScreenPlaceholder = styled.div`
   align-items: center;
   gap: 12px;
   position: relative;
+  margin: auto;
+`
+
+// ─── 终端视图 ────────────────────────────────────────
+
+const TerminalView = styled.div`
+  padding: 8px 10px;
+  font-family: 'SF Mono', 'Consolas', 'Courier New', monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+  height: 100%;
+  overflow-y: auto;
+`
+
+const TermHeader = styled.div`
+  color: var(--color-primary, #338cff);
+  margin-bottom: 6px;
+  font-weight: 500;
+  opacity: 0.8;
+`
+
+const TermLine = styled.div<{ $stderr: boolean }>`
+  color: ${(p) => (p.$stderr ? '#ff6b6b' : 'var(--color-text, #e8ecf4)')};
+`
+
+const TermCursor = styled.span`
+  display: inline-block;
+  width: 6px;
+  height: 14px;
+  background: var(--color-primary, #338cff);
+  animation: blink 1s step-end infinite;
+  vertical-align: text-bottom;
+  margin-left: 2px;
+
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+  }
+`
+
+// ─── 浏览器视图 ──────────────────────────────────────
+
+const BrowserView = styled.div`
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+`
+
+const BrowserHeader = styled.div`
+  padding: 4px 8px;
+  font-size: 10px;
+  color: var(--color-text-3, #8892b0);
+  background: rgba(0,0,0,0.15);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 0;
+`
+
+const BrowserImg = styled.img`
+  flex: 1;
+  object-fit: contain;
+  width: 100%;
+  min-height: 0;
 `
 
 const ScreenGlow = styled.div`
