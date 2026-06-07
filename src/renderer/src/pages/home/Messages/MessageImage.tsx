@@ -12,6 +12,7 @@ import { loggerService } from '@logger'
 import type { ImageMessageBlock } from '@renderer/types/newMessage'
 import { Image as AntdImage, Space } from 'antd'
 import type { FC } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import styled from 'styled-components'
 
@@ -20,6 +21,24 @@ interface Props {
 }
 
 const logger = loggerService.withContext('MessageImage')
+
+/** 将自定义协议 URL 转为标准 blob URL */
+function useResolvedSrc(src: string): string {
+  const [resolved, setResolved] = useState(src)
+  useEffect(() => {
+    if (!src.startsWith('cs-vfs://') && !src.startsWith('file://') && !src.startsWith('cherry-studio://')) {
+      setResolved(src)
+      return
+    }
+    let cancelled = false
+    fetch(src)
+      .then((r) => (r.ok ? r.blob() : Promise.reject()))
+      .then((blob) => { if (!cancelled) setResolved(URL.createObjectURL(blob)) })
+      .catch(() => { if (!cancelled) setResolved(src) })
+    return () => { cancelled = true }
+  }, [src])
+  return resolved
+}
 
 const MessageImage: FC<Props> = ({ block }) => {
   const { t } = useTranslation()
@@ -125,14 +144,30 @@ const MessageImage: FC<Props> = ({ block }) => {
   return (
     <Container style={{ marginBottom: 8 }}>
       {images.map((image, index) => (
-        <Image
-          src={image}
+        <ResolvedImageItem
           key={`image-${index}`}
-          style={{ maxWidth: 500, maxHeight: 500 }}
-          preview={{ toolbarRender: renderToolbar(image, index) }}
+          src={image}
+          index={index}
+          renderToolbar={renderToolbar}
         />
       ))}
     </Container>
+  )
+}
+
+/** 内部组件：解析图片 URL 后渲染 AntdImage */
+const ResolvedImageItem: FC<{ src: string; index: number; renderToolbar: (image: string, index: number) => any }> = ({
+  src,
+  index,
+  renderToolbar
+}) => {
+  const resolvedSrc = useResolvedSrc(src)
+  return (
+    <Image
+      src={resolvedSrc}
+      style={{ maxWidth: 500, maxHeight: 500 }}
+      preview={{ toolbarRender: renderToolbar(src, index) }}
+    />
   )
 }
 const Container = styled.div`

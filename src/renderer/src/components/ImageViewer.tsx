@@ -17,7 +17,7 @@ import { Dropdown, Image as AntImage, Space } from 'antd'
 import { Base64 } from 'js-base64'
 import { DownloadIcon } from 'lucide-react'
 import mime from 'mime'
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import styled from 'styled-components'
 
@@ -31,6 +31,21 @@ const logger = loggerService.withContext('ImageViewer')
 
 const ImageViewer: React.FC<ImageViewerProps> = ({ src, style, ...props }) => {
   const { t } = useTranslation()
+  const [displaySrc, setDisplaySrc] = useState(src)
+
+  // cs-vfs:// 自定义协议无法直接被 AntImage 加载，通过 fetch 转 blob: URL
+  useEffect(() => {
+    if (!src.startsWith('cs-vfs://') && !src.startsWith('cherry-studio://')) {
+      setDisplaySrc(src)
+      return
+    }
+    let cancelled = false
+    fetch(src)
+      .then((r) => (r.ok ? r.blob() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((blob) => { if (!cancelled) setDisplaySrc(URL.createObjectURL(blob)) })
+      .catch(() => { if (!cancelled) setDisplaySrc(src) })
+    return () => { cancelled = true }
+  }, [src])
 
   // 复制图片到剪贴板
   const handleCopyImage = async (src: string) => {
@@ -101,7 +116,7 @@ const ImageViewer: React.FC<ImageViewerProps> = ({ src, style, ...props }) => {
   return (
     <Dropdown menu={{ items: getContextMenuItems(src) }} trigger={['contextMenu']}>
       <AntImage
-        src={src}
+        src={displaySrc}
         style={style}
         onContextMenu={(e) => e.stopPropagation()}
         {...props}
