@@ -19,6 +19,7 @@ class MonitorService {
   static getInstance(): MonitorService {
     if (!MonitorService.instance) {
       MonitorService.instance = new MonitorService()
+      MonitorService.instance.init()
     }
     return MonitorService.instance
   }
