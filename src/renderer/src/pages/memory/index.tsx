@@ -7,7 +7,7 @@
 import MemoryBankService from '@renderer/services/MemoryBankService'
 import type { Memory } from '@renderer/types/memory'
 import dayjs from 'dayjs'
-import { ArchiveRestore, ArrowLeft, Delete, RotateCcw, Search, Trash2, X } from 'lucide-react'
+import { ArchiveRestore, ArrowLeft, Delete, RotateCcw, Search, Trash2, X, Trash as TrashIcon } from 'lucide-react'
 import type { FC } from 'react'
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -66,6 +66,21 @@ const MemoryPage: FC = () => {
     loadData()
   }, [service, loadData])
 
+  const handleClearTrash = useCallback(async () => {
+    if (trashed.length === 0) return
+    const confirmed = await window.modal.confirm({
+      title: '清空垃圾桶',
+      content: `确定要永久删除垃圾桶中的所有记忆（共 ${trashed.length} 条）吗？此操作不可撤销。`,
+      centered: true,
+    })
+    if (!confirmed) return
+    const count = await service.clearTrash()
+    if (count > 0) {
+      window.toast?.success?.(`已永久删除 ${count} 条记忆`)
+      loadData()
+    }
+  }, [service, trashed.length, loadData])
+
   const formatTime = (iso: string) => dayjs(iso).format('MM-DD HH:mm')
 
   return (
@@ -83,6 +98,11 @@ const MemoryPage: FC = () => {
             <TabItem $active={tab === 'trash'} onClick={() => setTab('trash')}>
               <Trash2 size={14} /> 垃圾桶 ({trashed.length})
             </TabItem>
+            {tab === 'trash' && trashed.length > 0 && (
+              <ClearTrashBtn onClick={handleClearTrash} title="清空垃圾桶">
+                <TrashIcon size={13} /> 清空
+              </ClearTrashBtn>
+            )}
           </TabBar>
         </TitleRow>
         <SearchRow>
@@ -351,6 +371,25 @@ const CardActions = styled.div`
   gap: 4px;
   flex-shrink: 0;
   justify-content: center;
+`
+
+const ClearTrashBtn = styled.button`
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: none;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--color-error);
+  background: rgba(255, 77, 79, 0.08);
+  margin-left: 8px;
+  white-space: nowrap;
+  transition: all 0.2s;
+  &:hover {
+    background: rgba(255, 77, 79, 0.18);
+  }
 `
 
 const ActionBtn = styled.button<{ $danger?: boolean }>`

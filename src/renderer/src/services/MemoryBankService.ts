@@ -309,6 +309,16 @@ class MemoryBankService {
     await db.table('memories').delete(id)
   }
 
+  /** 一键清空垃圾桶中的所有记忆 */
+  async clearTrash(): Promise<number> {
+    const trashed = await this.getAllTrashed()
+    const ids = trashed.map((m) => m.id)
+    if (ids.length === 0) return 0
+    const table = db.table('memories')
+    await Promise.all(ids.map((id) => table.delete(id)))
+    return ids.length
+  }
+
   async search(keyword: string): Promise<Memory[]> {
     const all = await this.getAllActive()
     const kw = keyword.toLowerCase()
