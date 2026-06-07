@@ -6072,6 +6072,18 @@
   "monitor": {
     "title": "监控室",
     "description": "AI 实时监控与日志系统\n正在开发中，敬请期待...",
-    "status": "待开发"
+    "status": "待开发",
+    "screenLive": "实时监控",
+    "screenWaiting": "等待 AI 操作...",
+    "taskContext": "当前任务上下文",
+    "relatedSkills": "关联 Skills",
+    "relatedFiles": "关联文件",
+    "sessionMetrics": "当前会话",
+    "totalOps": "总操作",
+    "blockedOps": "被拦截",
+    "retroCount": "回溯次数",
+    "operationLog": "操作日志",
+    "retroDisabledHint": "暂无可回溯的操作",
+    "stopDisabledHint": "当前无正在执行的操作"
   }
 }

@@ -6071,6 +6071,18 @@
   "monitor": {
     "title": "Monitor Room",
     "description": "AI Real-time Monitoring & Log System\nUnder development, coming soon...",
-    "status": "Pending"
+    "status": "Pending",
+    "screenLive": "Live Screen",
+    "screenWaiting": "Waiting for AI operations...",
+    "taskContext": "Current Task Context",
+    "relatedSkills": "Related Skills",
+    "relatedFiles": "Related Files",
+    "sessionMetrics": "Session Metrics",
+    "totalOps": "Total Ops",
+    "blockedOps": "Blocked",
+    "retroCount": "Retrograde",
+    "operationLog": "Operation Log",
+    "retroDisabledHint": "No operations to retrograde",
+    "stopDisabledHint": "No active operation"
   }
 }
