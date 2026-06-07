@@ -4,7 +4,7 @@
  * 在本地终端中执行命令，返回 stdout/stderr。
  * 危险命令会触发用户确认弹窗。
  */
-import { dialog } from 'electron'
+import { dialog, shell } from 'electron'
 import { exec } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
@@ -12,6 +12,21 @@ import path from 'node:path'
 import * as z from 'zod'
 
 import { checkProtectedFileOperation, DEFAULT_TIMEOUT_MS, getCommandSummary, isDangerousCommand, logger, MAX_OUTPUT_LENGTH } from '../types'
+
+/** 从删除命令中提取文件路径 */
+function extractPathFromCommand(cmd: string): string | null {
+  // 提取引号包裹的路径："C:\Users\..." 或 'C:\Users\...'
+  const q = cmd.match(/['"]([a-zA-Z]:\\[^'"]+)['"]/)
+  if (q) return q[1]
+
+  // 提取裸露的 Windows 路径（命令参数中第一个盘符开头的字符串）
+  const words = cmd.split(/\s+/)
+  for (const w of words) {
+    const p = w.replace(/["']/g, '')
+    if (/^[a-zA-Z]:\\/i.test(p) && p.length > 3) return p
+  }
+  return null
+}
 
 const ExecuteSchema = z.object({
   command: z.string().describe('要执行的命令'),
@@ -71,13 +86,32 @@ export async function handleExecuteTool(args: unknown) {
         isError: true
       }
     }
-    // 自动替换 del/rm 为移入回收站的操作提示
-    const trashNote = '\n[安全提示: 文件将被移入回收站而非永久删除]'
-    return {
-      content: [{
-        type: 'text',
-        text: `$ ${command}\n\n❌ 为了数据安全，AI 不能直接执行永久删除命令。\n请使用 filesystem 工具来安全删除文件（文件会移入回收站）。${trashNote}`
-      }]
+    // 用户确认 → 提取路径并移入回收站
+    try {
+      const filePath = extractPathFromCommand(command)
+      if (filePath) {
+        await shell.trashItem(filePath)
+        logger.info('File moved to trash (user confirmed)', { command, path: filePath })
+        return {
+          content: [{
+            type: 'text',
+            text: `$ ${command}\n\n文件已安全移入回收站 ✅`
+          }]
+        }
+      }
+      // 无法提取路径，返回提示
+      return {
+        content: [{
+          type: 'text',
+          text: `$ ${command}\n\n操作已确认，但无法自动识别文件路径。请手动使用回收站。`
+        }]
+      }
+    } catch (e) {
+      logger.error('Failed to move file to trash:', e as Error)
+      return {
+        content: [{ type: 'text', text: `删除失败: ${e instanceof Error ? e.message : e}` }],
+        isError: true
+      }
     }
   }
 
