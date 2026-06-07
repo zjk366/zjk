@@ -111,8 +111,13 @@ class MemoryBankService {
       const assistantContent = await getContent(lastAssistant.id)
       if (!userContent && !assistantContent) return
 
+      // 去重：检查是否已经保存过该条 assistant 消息
+      const existing = await db.table('conversation_logs')
+        .where('topicId').equals(data.topicId).toArray()
+      if (existing.some((l) => l.id?.includes(lastAssistant.id?.slice(0, 8) || ''))) return
+
       await db.table('conversation_logs').add({
-        id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        id: `log_${lastAssistant.id?.slice(0, 8) || ''}_${Date.now()}`,
         topicId: data.topicId,
         userContent: userContent.slice(0, 1000),
         assistantContent: assistantContent.slice(0, 1000),
@@ -272,15 +277,54 @@ class MemoryBankService {
 
   // ---- 关闭/切后台时强制总结 ----
 
-  /** 关闭/切后台时：仅清除计时器，不触发 AI 总结（启动时再处理） */
+  /** 关闭/切后台时：保存当前对话的末条记录，确保不丢失 */
   private onVisibilityChange = (): void => {
     if (document.visibilityState === 'hidden') {
       this.clearIdleTimer()
+      void this.saveLatestConversationLog()
     }
   }
 
   private onBeforeUnload = (): void => {
     this.clearIdleTimer()
+    // 同步保存最后一次对话（beforeunload 中用同步 DB 操作可能不行，但能尽力）
+    void this.saveLatestConversationLog()
+  }
+
+  /** 保存当前活跃话题的最新一条对话（防止关闭时丢失末条记录） */
+  private async saveLatestConversationLog(): Promise<void> {
+    if (!this.activeTopicId) return
+    try {
+      const topicRecord = await db.topics.get(this.activeTopicId)
+      if (!topicRecord?.messages || topicRecord.messages.length < 2) return
+      const msgs = topicRecord.messages
+      const lastUser = [...msgs].reverse().find((m) => m.role === 'user')
+      const lastAssistant = [...msgs].reverse().find((m) => m.role === 'assistant')
+      if (!lastUser || !lastAssistant) return
+      // 检查是否已经保存过
+      const existing = await db.table('conversation_logs')
+        .where('topicId').equals(this.activeTopicId).toArray()
+      const lastSaved = existing[existing.length - 1]
+      if (lastSaved && lastSaved.userContent.includes(lastUser.id?.slice(0, 8) || '')) return
+      const getContent = async (msgId: string): Promise<string> => {
+        try {
+          const blocks: any[] = await db.table('message_blocks')
+            .where('messageId').equals(msgId).toArray()
+          return blocks.filter((b) => b.type === 'main_text')
+            .map((b) => b.content || '').join('\n').trim()
+        } catch { return '' }
+      }
+      const userContent = await getContent(lastUser.id)
+      const assistantContent = await getContent(lastAssistant.id)
+      if (!userContent && !assistantContent) return
+      await db.table('conversation_logs').add({
+        id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        topicId: this.activeTopicId,
+        userContent: userContent.slice(0, 1000),
+        assistantContent: assistantContent.slice(0, 1000),
+        createdAt: new Date().toISOString(),
+      } as ConversationLog)
+    } catch { /* 关闭时尽力保存，失败不影响 */ }
   }
 
   // ---- CRUD (公开) ----
