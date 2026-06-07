@@ -62,11 +62,19 @@ const mcp = {
 }
 
 const buildContext = () => {
+  // shadow Node.js globals to prevent AI from accessing fs/child_process directly
   return {
     mcp,
     parallel: (...promises) => Promise.all(promises),
     settle: (...promises) => Promise.allSettled(promises),
-    console: capturedConsole
+    console: capturedConsole,
+    process: undefined,
+    require: undefined,
+    module: undefined,
+    __dirname: undefined,
+    __filename: undefined,
+    global: undefined,
+    globalThis: undefined
   }
 }
 
