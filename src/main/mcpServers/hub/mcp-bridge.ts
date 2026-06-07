@@ -125,6 +125,7 @@ export const callMcpTool = async (nameOrId: string, params: unknown, callId?: st
       if (c.type === 'resource' && (c.resource?.blob || c.resource?.uri?.startsWith('data:'))) return true
       return false
     })
+    logger.info(`FileVault: ${imageItems.length} image(s) found in tool result`)
     if (imageItems.length > 0) {
       const refs: string[] = []
       for (const img of imageItems) {

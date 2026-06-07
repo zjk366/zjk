@@ -334,8 +334,10 @@ export class ToolCallChunkHandler {
     const toolCallInfo = this.activeToolCalls.get(toolCallId)
     if (!toolCallInfo) {
       logger.warn(`🔧 [ToolCallChunkHandler] Tool call info not found for ID: ${toolCallId}`)
+      logger.info(`[IMG] activeToolCalls keys: ${[...this.activeToolCalls.keys()].join(',')}`)
       return
     }
+    logger.info(`[IMG] handleToolResult for tool: ${toolCallInfo.toolName}`)
 
     // 创建工具调用结果的 MCPToolResponse 格式
     const toolResponse: MCPToolResponse | NormalToolResponse = {
@@ -371,6 +373,7 @@ export class ToolCallChunkHandler {
       const images = extractImagesFromToolOutput(toolResponse.response)
 
       if (images.length) {
+        logger.info(`[IMG] Extracted ${images.length} image(s) from tool: ${toolResponse.tool.name}`)
         this.onChunk({
           type: ChunkType.IMAGE_CREATED
         })
