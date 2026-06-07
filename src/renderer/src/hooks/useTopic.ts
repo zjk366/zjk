@@ -26,7 +26,8 @@ const logger = loggerService.withContext('useTopic')
 
 export function useActiveTopic(assistantId: string, topic?: Topic) {
   const { assistant } = useAssistant(assistantId)
-  const [activeTopic, setActiveTopic] = useState(topic || _activeTopic || assistant?.topics[0])
+  const initialTopic = topic || _activeTopic || assistant?.topics[0]
+  const [activeTopic, setActiveTopic] = useState(initialTopic ?? ({ id: 'loading' } as Topic))
 
   _activeTopic = activeTopic
   _setActiveTopic = setActiveTopic

@@ -301,10 +301,6 @@ const Messages: React.FC<MessagesProps> = ({ assistant, topic, setActiveTopic, o
     return Object.entries(newGrouped)
   }, [displayMessages])
 
-  if (!topic) {
-    return <MessagesContainer id="messages" className="messages-container" />
-  }
-
   return (
     <MessagesContainer
       id="messages"
