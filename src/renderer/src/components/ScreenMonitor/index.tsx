@@ -25,13 +25,13 @@ const ScreenMonitor: FC<ScreenMonitorProps> = ({ terminalLines = [], defaultFps 
     const pw = (window as any).printWindow
     const sm = (window as any).screenMonitor
 
-    // PrintWindow 捕获（优先）
+    // PrintWindow 捕获（优先，JPEG 编码低延迟）
     pw?.onFrame((data: any) => {
       if (!data.windows?.length) return
       const w = data.windows[0]
       if (!w.pngBuffer?.length) return
       pwReceivedRef.current = true
-      const blob = new Blob([w.pngBuffer], { type: 'image/png' })
+      const blob = new Blob([w.pngBuffer], { type: 'image/jpeg' })
       const url = URL.createObjectURL(blob)
       if (imgRef.current) imgRef.current.src = url
     })

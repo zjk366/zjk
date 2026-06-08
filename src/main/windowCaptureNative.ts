@@ -49,7 +49,7 @@ function captureAndPush(): void {
     const captured: { pngBuffer: Buffer; left: number; top: number; width: number; height: number }[] = []
     for (const w of targets) {
       try {
-        const buf = nm.captureWindow(w.hwnd, w.width, w.height, 1280, 960)
+        const buf = nm.captureWindow(w.hwnd, w.width, w.height, 960, 720)
         if (buf && buf.length > 200) {
           captured.push({ pngBuffer: buf, left: w.left || 0, top: w.top || 0, width: w.width, height: w.height })
           blankFrameCount = 0
@@ -82,7 +82,7 @@ function captureAndPush(): void {
 
 function schedule(): void {
   if (!st.running) return
-  st.timer = setTimeout(() => { captureAndPush(); schedule() }, 1000)
+  st.timer = setTimeout(() => { captureAndPush(); schedule() }, 300)
 }
 function start(): void { if (!st.running && getNative()) { st.running = true; schedule(); logger.info('Native PW capture started') } }
 function stop(): void { st.running = false; st.capturing = false; if (st.timer) { clearTimeout(st.timer); st.timer = null } }

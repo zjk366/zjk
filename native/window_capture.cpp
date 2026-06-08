@@ -209,7 +209,7 @@ static bool CaptureWindowToPng(HWND hwnd, int width, int height, std::vector<uns
                         hr = wicStream->InitializeFromIStream(pStream);
                         if (SUCCEEDED(hr)) {
                             IWICBitmapEncoder* encoder = nullptr;
-                            hr = wicFactory->CreateEncoder(GUID_ContainerFormatPng, nullptr, &encoder);
+                            hr = wicFactory->CreateEncoder(GUID_ContainerFormatJpeg, nullptr, &encoder);
                             if (SUCCEEDED(hr) && encoder) {
                                 hr = encoder->Initialize(wicStream, WICBitmapEncoderNoCache);
                                 if (SUCCEEDED(hr)) {
