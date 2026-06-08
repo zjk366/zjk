@@ -36,15 +36,15 @@ async function captureAndPush(): Promise<void> {
   try {
     const sources = await desktopCapturer.getSources({
       types: ['screen'],
-      thumbnailSize: { width: 1280, height: 720 },
+      thumbnailSize: { width: 960, height: 540 },
       fetchWindowIcons: false,
     })
 
     if (sources.length === 0) return
 
-    // 取第一个屏幕（主屏）的缩略图
+    // 取第一个屏幕（主屏）的缩略图，JPEG 压缩减小体积
     const frame = sources[0].thumbnail
-    const dataUrl = frame.toDataURL()
+    const dataUrl = frame.toDataURL('image/jpeg', 0.5)
     const timestamp = Date.now()
 
     if (state.win && !state.win.isDestroyed()) {

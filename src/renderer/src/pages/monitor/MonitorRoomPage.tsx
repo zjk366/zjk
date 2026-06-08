@@ -171,7 +171,7 @@ const MonitorRoomPage: FC = () => {
         <LeftColumn>
           {/* 左上：实时屏幕（ScreenMonitor 组件） */}
           <ScreenPanel style={{ flex: 3, minHeight: 0 }}>
-            <ScreenMonitor terminalLines={terminalLines} defaultFps={2} />
+            <ScreenMonitor terminalLines={terminalLines} defaultFps={5} />
           </ScreenPanel>
 
           {/* 左下：当前任务上下文面板 */}
