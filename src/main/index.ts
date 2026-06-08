@@ -190,6 +190,14 @@ if (!app.requestSingleInstanceLock()) {
       logger.error('Failed to init ScreenMonitor', err as Error)
     }
 
+    // 初始化窗口级截图模块（捕获独立窗口，排除自身）
+    try {
+      const { initWindowCapture } = await import('./windowCapture')
+      initWindowCapture(mainWindow)
+    } catch (err) {
+      logger.error('Failed to init WindowCapture', err as Error)
+    }
+
     new TrayService()
 
     // Setup macOS application menu
