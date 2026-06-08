@@ -38,17 +38,16 @@ const BITMAPINFO = koffi.struct('BINF', {
   bmiHeader: BITMAPINFOHEADER, bmiColors: koffi.array(koffi.types.uint8, 4),
 })
 
-const GetDesktopWindow = user32.func('GetDesktopWindow', HWND, [])
-const GetWindowDC = user32.func('GetWindowDC', HDC, [HWND])
-const ReleaseDC = user32.func('ReleaseDC', koffi.types.int32, [HWND, HDC])
 const GetWindowRect = user32.func('GetWindowRect', BOOL, [HWND, koffi.out(RECT)])
 const GetDC = user32.func('GetDC', HDC, [HWND])
+const ReleaseDC = user32.func('ReleaseDC', koffi.types.int32, [HWND, HDC])
 const CreateCompatibleDC = gdi32.func('CreateCompatibleDC', HDC, [HDC])
 const DeleteDC = gdi32.func('DeleteDC', BOOL, [HDC])
 const CreateCompatibleBitmap = gdi32.func('CreateCompatibleBitmap', HBITMAP,
   [HDC, koffi.types.int32, koffi.types.int32])
 const SelectObject = gdi32.func('SelectObject', HANDLE, [HDC, HANDLE])
 const DeleteObject = gdi32.func('DeleteObject', BOOL, [HANDLE])
+const GetSystemMetrics = user32.func('GetSystemMetrics', koffi.types.int32, [koffi.types.int32])
 const BitBlt = gdi32.func('BitBlt', BOOL,
   [HDC, koffi.types.int32, koffi.types.int32, koffi.types.int32,
     koffi.types.int32, HDC, koffi.types.int32, koffi.types.int32, DWORD])
@@ -79,18 +78,13 @@ async function captureAndPush(): Promise<void> {
   let hdcScreen = null, hdcMem = null, hBmp = null, oldSel = null
 
   try {
-    const desktopHwnd = GetDesktopWindow()
-    if (!desktopHwnd) { st.capturing = false; return }
-
-    // 获取屏幕尺寸：取桌面窗口客户区
-    const scrRect = koffi.new(RECT)
-    GetWindowRect(desktopHwnd, scrRect)
-    const sw = scrRect.right - scrRect.left
-    const sh = scrRect.bottom - scrRect.top
+    // 获取主屏幕尺寸（通过 GetSystemMetrics 更可靠）
+    const sw = GetSystemMetrics(0)  // SM_CXSCREEN
+    const sh = GetSystemMetrics(1)  // SM_CYSCREEN
     if (sw < 100 || sh < 100) { st.capturing = false; return }
 
     // 分配 GDI 资源
-    hdcScreen = GetDC(desktopHwnd)
+    hdcScreen = GetDC(null) // NULL = 全屏（含所有窗口）
     if (!hdcScreen) { st.capturing = false; return }
 
     hdcMem = CreateCompatibleDC(hdcScreen)
@@ -158,7 +152,7 @@ async function captureAndPush(): Promise<void> {
     try { if (oldSel) SelectObject(hdcMem, oldSel) } catch {}
     try { if (hBmp) DeleteObject(hBmp) } catch {}
     try { if (hdcMem) DeleteDC(hdcMem) } catch {}
-    try { if (hdcScreen) ReleaseDC(GetDesktopWindow(), hdcScreen) } catch {}
+    try { if (hdcScreen) ReleaseDC(null, hdcScreen) } catch {}
     st.capturing = false
   }
 }
