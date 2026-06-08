@@ -1,14 +1,10 @@
 /**
  * 桌面实时截屏模块
  *
- * 使用 Electron desktopCapturer API 捕获整个桌面，
- * 以固定帧率通过 IPC 推送给渲染进程。
+ * 自适应帧率：每次捕获完成后根据耗时动态计算下一次间隔，
+ * 避免 setInterval 固定间隔导致的叠加延迟。
  *
- * 性能保护：
- * - capturing 标志防止上一帧未完成时重复捕获
- * - thumbnailSize 限制到 640x360
- * - JPEG 压缩减少 IPC 数据量
- * - 渲染层无监听时跳过推送
+ * 窗口不可见时自动暂停。
  */
 import { desktopCapturer, ipcMain, type BrowserWindow } from 'electron'
 import { loggerService } from '@logger'
@@ -17,39 +13,40 @@ const logger = loggerService.withContext('ScreenMonitor')
 
 interface ScreenMonitorState {
   win: BrowserWindow | null
-  timer: ReturnType<typeof setInterval> | null
+  running: boolean
   fps: number
   hasListener: boolean
-  capturing: boolean // 防止并发捕获
+  capturing: boolean
+  timer: ReturnType<typeof setTimeout> | null
 }
 
 const state: ScreenMonitorState = {
   win: null,
-  timer: null,
-  fps: 3,
+  running: false,
+  fps: 2,
   hasListener: false,
   capturing: false,
+  timer: null,
 }
 
-/** 捕获一帧桌面截图并推送 */
 async function captureAndPush(): Promise<void> {
-  if (!state.win || state.win.isDestroyed() || !state.hasListener || state.capturing) return
+  if (!state.win || state.win.isDestroyed() || !state.running || !state.hasListener || state.capturing) return
 
   state.capturing = true
   try {
     const sources = await desktopCapturer.getSources({
       types: ['screen'],
-      thumbnailSize: { width: 640, height: 360 },
+      thumbnailSize: { width: 480, height: 270 },
       fetchWindowIcons: false,
     })
 
-    if (sources.length === 0) return
+    if (sources.length === 0 || !state.running) return
 
     const frame = sources[0].thumbnail
     const dataUrl = frame.toDataURL()
     const timestamp = Date.now()
 
-    if (state.win && !state.win.isDestroyed()) {
+    if (state.win && !state.win.isDestroyed() && state.running) {
       state.win.webContents.send('screen-monitor:frame', { dataUrl, timestamp })
     }
   } catch (err) {
@@ -59,20 +56,30 @@ async function captureAndPush(): Promise<void> {
   }
 }
 
-/** 启动桌面截屏 */
-function startCapture(): void {
-  if (state.timer) return
-  logger.info(`Screen capture started at ${state.fps} fps`)
-  state.timer = setInterval(captureAndPush, Math.round(1000 / state.fps))
-  void captureAndPush()
+/** 自适应循环：根据实际捕获耗时 + 目标帧率计算下次调度时间 */
+function scheduleNext(): void {
+  if (!state.running) return
+  const interval = Math.max(200, Math.round(1000 / state.fps))
+  state.timer = setTimeout(async () => {
+    await captureAndPush()
+    scheduleNext()
+  }, interval)
 }
 
-/** 停止桌面截屏 */
+function startCapture(): void {
+  if (state.running) return
+  state.running = true
+  logger.info(`Screen capture started at ${state.fps} fps (adaptive)`)
+  scheduleNext()
+}
+
 function stopCapture(): void {
-  if (!state.timer) return
-  clearInterval(state.timer)
-  state.timer = null
+  state.running = false
   state.capturing = false
+  if (state.timer) {
+    clearTimeout(state.timer)
+    state.timer = null
+  }
   logger.info('Screen capture stopped')
 }
 
@@ -92,16 +99,11 @@ function registerIpc(): void {
   })
 
   safeOn('screen-monitor:set-fps', (_event: any, fps: number) => {
-    const clamped = Math.max(1, Math.min(10, Math.round(fps)))
-    state.fps = clamped
-    if (state.timer) {
+    state.fps = Math.max(1, Math.min(10, Math.round(fps)))
+    if (state.running) {
       stopCapture()
       startCapture()
     }
-  })
-
-  safeOn('screen-monitor:listener-ready', () => {
-    state.hasListener = true
   })
 }
 
@@ -110,12 +112,18 @@ export function initScreenMonitor(win: BrowserWindow): void {
     state.win = win
     registerIpc()
 
+    // 窗口最小化／不可见时暂停截屏
+    win.on('hide', () => stopCapture())
+    win.on('show', () => { if (state.hasListener) startCapture() })
+    win.on('minimize', () => stopCapture())
+    win.on('restore', () => { if (state.hasListener) startCapture() })
+
     win.on('close', () => {
       stopCapture()
       state.win = null
     })
 
-    logger.info('ScreenMonitor initialized')
+    logger.info('ScreenMonitor initialized (480×270, 2fps adaptive, background-pause)')
   } catch (err) {
     logger.error('Failed to init ScreenMonitor', err as Error)
   }
