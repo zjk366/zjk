@@ -177,26 +177,47 @@ const ScreenMonitor: FC<ScreenMonitorProps> = ({ terminalLines = [], defaultFps 
 
   useEffect(() => {
     const wc = (window as any).windowCapture
-    wc?.start()
-    const onWindows = (data: any) => {
-      if (data.type === 'windows' && data.windows?.length > 0) {
-        modeRef.current = 'window'
-        winRef.current = data.windows
-        schedule()
-      } else if (data.type === 'empty' && modeRef.current === 'window') {
-        modeRef.current = 'screen'
-        schedule()
+    const sm = (window as any).screenMonitor
+    let windowActive = false
+
+    const preloadAndRender = (windows: WindowInfo[]) => {
+      winRef.current = windows
+      // 预加载所有图片，全部完成后渲染一次
+      let loaded = 0
+      const total = windows.length
+      if (total === 0) return schedule()
+      for (const w of windows) {
+        const img = new Image()
+        img.onload = () => { loaded++; if (loaded >= total) schedule() }
+        img.onerror = () => { loaded++; if (loaded >= total) schedule() }
+        img.src = w.dataUrl
+        // 缓存到 IMG_CACHE
+        IMG_CACHE.set(w.dataUrl, img)
       }
     }
+
+    const onWindows = (data: any) => {
+      if (data.type === 'windows' && data.windows?.length > 0) {
+        if (!windowActive) { windowActive = true; sm?.stop() }
+        modeRef.current = 'window'
+        preloadAndRender(data.windows)
+      } else if (data.type === 'empty' && modeRef.current === 'window') {
+        windowActive = false
+        modeRef.current = 'screen'
+        sm?.setFps(defaultFps)
+        sm?.start()
+        setTimeout(() => schedule(), 100)
+      }
+    }
+    wc?.start()
     wc?.onFrame(onWindows)
 
-    const sm = (window as any).screenMonitor
-    sm?.setFps(defaultFps)
-    sm?.start()
     const onScreen = (data: { dataUrl: string }) => {
       screenRef.current = data.dataUrl
-      schedule()
+      if (modeRef.current === 'screen') schedule()
     }
+    sm?.setFps(defaultFps)
+    sm?.start()
     sm?.onFrame(onScreen)
 
     const onResize = () => schedule()
