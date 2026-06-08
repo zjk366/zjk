@@ -1,8 +1,8 @@
 /**
- * ScreenMonitor — 桌面实时监控（全屏截图模式）
+ * ScreenMonitor — 全屏截图模式
  *
- * 使用 screenMonitor 全屏截图，清晰流畅低延迟。
- * 自身窗口可见（所有截屏工具的标准行为）。
+ * 使用 desktopCapturer 全屏截图，1920x1080 清晰流畅。
+ * 包含自身窗口（所有截屏工具的标准行为）。
  */
 import { useEffect, useRef } from 'react'
 import type { FC } from 'react'
@@ -44,7 +44,7 @@ const ScreenMonitor: FC<ScreenMonitorProps> = ({ terminalLines = [], defaultFps 
   return (
     <div className="screen-monitor">
       <div className="sm-screen">
-        <img ref={imgRef} alt="desktop" className="sm-screen-img" />
+        <img ref={imgRef} alt="" className="sm-screen-img" />
       </div>
       {displayLines.length > 0 && (
         <div className="sm-terminal">

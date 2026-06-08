@@ -190,6 +190,14 @@ if (!app.requestSingleInstanceLock()) {
       logger.error('Failed to init ScreenMonitor', err as Error)
     }
 
+    // PrintWindow 原生模块（DLL 方式，无 PowerShell 开销）
+    try {
+      const { initWindowCaptureNative } = await import('./windowCaptureNative')
+      initWindowCaptureNative(mainWindow)
+    } catch (err) {
+      logger.warn('Native WindowCapture init failed, will use screen fallback', err as Error)
+    }
+
     new TrayService()
 
     // Setup macOS application menu
