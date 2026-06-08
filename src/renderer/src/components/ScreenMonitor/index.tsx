@@ -1,9 +1,8 @@
 /**
- * ScreenMonitor — 桌面/窗口级实时监控组件
+ * ScreenMonitor — 桌面实时监控（全屏截图模式）
  *
- * 双模式：
- * - 窗口模式（默认）：捕获独立窗口排除自身，Canvas 合成排列
- * - 截屏模式（兜底）：全屏截图直接显示
+ * 使用 screenMonitor 全屏截图，清晰流畅低延迟。
+ * 自身窗口可见（所有截屏工具的标准行为）。
  */
 import { useEffect, useRef } from 'react'
 import type { FC } from 'react'
@@ -14,254 +13,23 @@ export interface ScreenMonitorProps {
   defaultFps?: number
 }
 
-interface WindowInfo {
-  id: string; name: string; dataUrl: string; width: number; height: number
-  pngBuffer?: Uint8Array  // 主进程传来的原始 PNG 字节
-}
-
 const MAX_TERM_LINES = 500
-const IMG_CACHE = new Map<string, HTMLImageElement>()
-const BLOB_URL_CACHE = new Map<string, string>()
-
-/** 将 Uint8Array PNG 转为 Blob URL，缓存复用 */
-function getBlobUrl(key: string, data: Uint8Array): string {
-  const existing = BLOB_URL_CACHE.get(key)
-  if (existing) return existing
-  // 释放旧 Blob URL
-  if (BLOB_URL_CACHE.size > 50) {
-    const first = BLOB_URL_CACHE.keys().next().value
-    if (first) { URL.revokeObjectURL(BLOB_URL_CACHE.get(first)!); BLOB_URL_CACHE.delete(first) }
-  }
-  const blob = new Blob([data], { type: 'image/png' })
-  const url = URL.createObjectURL(blob)
-  BLOB_URL_CACHE.set(key, url)
-  return url
-}
-
-function getOrCreateImage(dataUrl: string, pngBuffer?: Uint8Array): HTMLImageElement {
-  const key = pngBuffer ? `buf_${dataUrl.length}` : dataUrl
-  let img = IMG_CACHE.get(key)
-  if (!img) {
-    img = new Image()
-    if (pngBuffer) {
-      img.src = getBlobUrl(key, pngBuffer)
-    } else {
-      img.src = dataUrl
-    }
-    IMG_CACHE.set(key, img)
-  }
-  return img
-}
-
-/** 在 Canvas 上绘制单个窗口（带标题栏 + 圆角） */
-function drawWindowTile(
-  ctx: CanvasRenderingContext2D,
-  w: WindowInfo,
-  x: number, y: number,
-  dw: number, dh: number,
-) {
-  const titleH = Math.min(dw * 0.05 + 10, 22)
-  const img = getOrCreateImage(w.dataUrl, w.pngBuffer)
-  const imgReady = img.complete && img.naturalWidth > 0
-
-  // 阴影
-  ctx.save()
-  ctx.shadowColor = 'rgba(0,0,0,0.5)'
-  ctx.shadowBlur = 12
-  ctx.shadowOffsetY = 3
-  ctx.fillStyle = '#1a1e2a'
-  ctx.beginPath()
-  ctx.roundRect(x - 1, y - 1, dw + 2, dh + 2, 8)
-  ctx.fill()
-  ctx.restore()
-
-  // 标题栏
-  ctx.fillStyle = '#252836'
-  ctx.beginPath()
-  ctx.roundRect(x + 1, y + 1, dw - 2, titleH - 1, [7, 7, 0, 0])
-  ctx.fill()
-
-  // 标题文字
-  ctx.fillStyle = '#8892b0'
-  ctx.font = '10px sans-serif'
-  ctx.textAlign = 'center'
-  ctx.textBaseline = 'middle'
-  const title = w.name.length > 32 ? w.name.slice(0, 30) + '…' : w.name
-  ctx.fillText(title, x + dw / 2, y + titleH / 2 + 1)
-
-  // 窗口内容（图片未加载时显示灰色占位）
-  if (imgReady) {
-    ctx.drawImage(img, x + 1, y + titleH + 1, dw - 2, dh - titleH - 2)
-  } else {
-    ctx.fillStyle = '#2a2e3a'
-    ctx.fillRect(x + 1, y + titleH + 1, dw - 2, dh - titleH - 2)
-  }
-}
-
-/** 绘制所有窗口合成 */
-function renderWindows(
-  ctx: CanvasRenderingContext2D,
-  cw: number, ch: number,
-  windows: WindowInfo[],
-) {
-  ctx.fillStyle = '#0a0e1a'
-  ctx.fillRect(0, 0, cw, ch)
-
-  if (windows.length === 0) {
-    ctx.fillStyle = '#8892b0'
-    ctx.font = '13px sans-serif'
-    ctx.textAlign = 'center'
-    ctx.fillText('无可见窗口', cw / 2, ch / 2)
-    return
-  }
-
-  const pad = 16
-  const gap = 10
-  const uW = cw - pad * 2
-  const uH = ch - pad * 2
-
-  if (windows.length === 1) {
-    const w = windows[0]
-    const maxW = uW
-    const maxH = uH
-    const scale = Math.min(maxW / w.width, maxH / w.height, 2.5)
-    const dw = Math.round(w.width * scale)
-    const dh = Math.round(w.height * scale)
-    drawWindowTile(ctx, w, Math.round((cw - dw) / 2), Math.round((ch - dh) / 2), dw, dh)
-    return
-  }
-
-  const cols = Math.min(windows.length, 3)
-  const rows = Math.ceil(windows.length / cols)
-  const cellW = (uW - gap * (cols - 1)) / cols
-  const cellH = (uH - gap * (rows - 1)) / rows
-
-  for (let i = 0; i < windows.length; i++) {
-    const w = windows[i]
-    const col = i % cols
-    const row = Math.floor(i / cols)
-    const maxW = cellW - 8
-    const maxH = cellH - 8
-    const scale = Math.min(maxW / w.width, maxH / w.height, 1.5)
-    const dw = Math.round(w.width * scale)
-    const dh = Math.round(w.height * scale)
-    const cx = pad + col * (cellW + gap) + (cellW - dw) / 2
-    const cy = pad + row * (cellH + gap) + (cellH - dh) / 2
-    drawWindowTile(ctx, w, Math.round(cx), Math.round(cy), dw, dh)
-  }
-}
-
-/** 绘制全屏截图 */
-function renderScreen(ctx: CanvasRenderingContext2D, cw: number, ch: number, dataUrl: string) {
-  ctx.fillStyle = '#000'
-  ctx.fillRect(0, 0, cw, ch)
-
-  const img = getOrCreateImage(dataUrl)
-  if (!img.complete || !img.naturalWidth) return
-
-  const scale = Math.min(cw / img.width, ch / img.height)
-  const dw = Math.round(img.width * scale)
-  const dh = Math.round(img.height * scale)
-  const dx = Math.round((cw - dw) / 2)
-  const dy = Math.round((ch - dh) / 2)
-  ctx.drawImage(img, dx, dy, dw, dh)
-}
 
 const ScreenMonitor: FC<ScreenMonitorProps> = ({ terminalLines = [], defaultFps = 2 }) => {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
-  const containerRef = useRef<HTMLDivElement>(null)
+  const imgRef = useRef<HTMLImageElement>(null)
   const termEndRef = useRef<HTMLDivElement>(null)
   const prevLenRef = useRef(0)
-  const rafRef = useRef(0)
-  const winRef = useRef<WindowInfo[] | null>(null)
-  const screenRef = useRef<string | null>(null)
-  const modeRef = useRef<'window' | 'screen'>('screen')
-
-  const render = () => {
-    const canvas = canvasRef.current
-    const container = containerRef.current
-    if (!canvas || !container) return
-    const cw = container.clientWidth
-    const ch = container.clientHeight
-    if (cw < 10 || ch < 10) return
-    canvas.width = cw
-    canvas.height = ch
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-    ctx.imageSmoothingEnabled = true
-    ctx.imageSmoothingQuality = 'high'
-
-    // 始终绘制屏幕截图作为背景（任何模式都有兜底）
-    if (screenRef.current) {
-      renderScreen(ctx, cw, ch, screenRef.current)
-    } else {
-      ctx.fillStyle = '#1a1e2a'
-      ctx.fillRect(0, 0, cw, ch)
-    }
-
-    // 窗口模式：在屏幕背景上叠加窗口缩略图
-    if (modeRef.current === 'window' && winRef.current?.length) {
-      renderWindows(ctx, cw, ch, winRef.current)
-    }
-    rafRef.current = 0
-  }
-
-  const schedule = () => { if (!rafRef.current) rafRef.current = requestAnimationFrame(render) }
 
   useEffect(() => {
-    const wc = (window as any).windowCapture
     const sm = (window as any).screenMonitor
-
-    // 窗口数据到达 → 立即缓存，不阻塞渲染
-    const onWindows = (data: any) => {
-      if (data.type === 'windows' && data.windows?.length > 0) {
-        modeRef.current = 'window'
-        winRef.current = data.windows
-        // 预加载图片（后台加载）
-        for (const w of data.windows) {
-          const key = w.pngBuffer ? `buf_${w.id}` : w.dataUrl
-          if (!IMG_CACHE.has(key)) {
-            const img = new Image()
-            img.onload = () => schedule()
-            if (w.pngBuffer) {
-              img.src = getBlobUrl(key, w.pngBuffer)
-            } else {
-              img.src = w.dataUrl
-            }
-            IMG_CACHE.set(key, img)
-          }
-        }
-        schedule()
-      } else if (data.type === 'empty') {
-        // 无窗口时立即切到截屏（屏幕帧已缓存）
-        modeRef.current = 'screen'
-        winRef.current = null
-        schedule()
-      }
+    if (!sm) return
+    sm.setFps(defaultFps)
+    sm.start()
+    const handler = (data: { dataUrl: string }) => {
+      if (imgRef.current) imgRef.current.src = data.dataUrl
     }
-    wc?.start()
-    wc?.onFrame(onWindows)
-
-    // 屏幕截图始终后台运行（低开销），兜底显示 + 窗口背景
-    const onScreen = (data: { dataUrl: string }) => {
-      screenRef.current = data.dataUrl
-      schedule() // 窗口模式下也会触发→背景刷新
-    }
-    sm?.setFps(defaultFps)
-    sm?.start()
-    sm?.onFrame(onScreen)
-
-    const onResize = () => schedule()
-    window.addEventListener('resize', onResize)
-
-    return () => {
-      wc?.offFrame(onWindows)
-      wc?.stop()
-      sm?.offFrame(onScreen)
-      sm?.stop()
-      window.removeEventListener('resize', onResize)
-      if (rafRef.current) cancelAnimationFrame(rafRef.current)
-    }
+    sm.onFrame(handler)
+    return () => { sm.offFrame(handler); sm.stop() }
   }, [defaultFps])
 
   useEffect(() => {
@@ -275,9 +43,8 @@ const ScreenMonitor: FC<ScreenMonitorProps> = ({ terminalLines = [], defaultFps 
 
   return (
     <div className="screen-monitor">
-      <div className="sm-mode-tag">{modeRef.current === 'window' ? '窗口捕获' : '全屏捕获'}</div>
-      <div className="sm-screen" ref={containerRef}>
-        <canvas ref={canvasRef} className="sm-canvas" />
+      <div className="sm-screen">
+        <img ref={imgRef} alt="desktop" className="sm-screen-img" />
       </div>
       {displayLines.length > 0 && (
         <div className="sm-terminal">
