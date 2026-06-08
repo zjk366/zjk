@@ -27,18 +27,6 @@ const state: ScreenMonitorState = {
   timer: null,
 }
 
-/** 获取窗口在 480×270 截图坐标系中的位置 */
-function getWindowRect(): { x: number; y: number; w: number; h: number } | null {
-  if (!state.win || state.win.isDestroyed()) return null
-  try {
-    const b = state.win.getBounds()
-    // 假定屏幕为 1920×1080（常见分辨率），缩放到 480×270
-    const sx = 480 / 1920
-    const sy = 270 / 1080
-    return { x: Math.round(b.x * sx), y: Math.round(b.y * sy), w: Math.round(b.width * sx), h: Math.round(b.height * sy) }
-  } catch { return null }
-}
-
 async function captureAndPush(): Promise<void> {
   if (!state.win || state.win.isDestroyed() || !state.running || !state.hasListener || state.capturing) return
 
@@ -46,17 +34,16 @@ async function captureAndPush(): Promise<void> {
   try {
     const sources = await desktopCapturer.getSources({
       types: ['screen'],
-      thumbnailSize: { width: 480, height: 270 },
+      thumbnailSize: { width: 960, height: 540 },
       fetchWindowIcons: false,
     })
 
     if (sources.length === 0 || !state.running) return
 
     const dataUrl = sources[0].thumbnail.toDataURL()
-    const windowRect = getWindowRect()
 
     if (state.win && !state.win.isDestroyed() && state.running) {
-      state.win.webContents.send('screen-monitor:frame', { dataUrl, windowRect, timestamp: Date.now() })
+      state.win.webContents.send('screen-monitor:frame', { dataUrl, timestamp: Date.now() })
     }
   } catch (err) {
     logger.error('Screen capture failed', err as Error)
