@@ -216,14 +216,9 @@ export async function captureWindowDwm(srcHwnd: Buffer, maxWidth = 0): Promise<R
     bmi.bmiHeader.biSizeImage = pixelSize
     if (!GetDIBits(hdcMem, hBmp, 0, sh, pixels, bmi, DIB_RGB_COLORS)) return null
 
-    // BGRA → RGBA
-    for (let i = 0; i < pixelSize; i += 4) {
-      const r = pixels[i + 2]; const b = pixels[i]
-      pixels[i] = r; pixels[i + 2] = b
-    }
-
-    // 返回 RAW RGBA Buffer（前端 Canvas putImageData 直接渲染，零编解码开销）
-    // 如需缩放，由前端 Canvas 统一处理
+    // 保留原生 BGRA 格式：
+    //   nativeImage.createFromBitmap 需要 BGRA
+    //   前端 Canvas putImageData 前由组件自行转换 BGRA→RGBA
     return {
       rawBuffer: pixels,
       width: sw,

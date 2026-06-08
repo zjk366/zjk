@@ -35,6 +35,8 @@ async function loadSkills(): Promise<typeof cachedSkills> {
   } catch { return null }
 }
 
+interface WinEntry { hwnd: string; title: string; pid: number; width: number; height: number; isMinimized: boolean }
+
 const MonitorRoomPage: FC = () => {
   const { t } = useTranslation()
   const navigate = useNavigate()
@@ -43,9 +45,17 @@ const MonitorRoomPage: FC = () => {
   const [screen, setScreen] = useState<ScreenContent>({ type: 'idle' })
   const [skills, setSkills] = useState<{ name: string; status: 'active' | 'idle' | 'error' }[]>([])
   const [skillsLoaded, setSkillsLoaded] = useState(false)
+
+  // ── 自动捕获状态 ────────────────────────────
+  const [captureInfo, setCaptureInfo] = useState<string>('')
+  const [winList, setWinList] = useState<WinEntry[]>([])
+  const [winIndex, setWinIndex] = useState(0)
+  const autoStartedRef = useRef(false)
+
   const serviceRef = useRef(MonitorService.getInstance())
   const screenRef = useRef<HTMLDivElement>(null)
   const termEndRef = useRef<HTMLDivElement>(null)
+  const targetHwndRef = useRef('') // 当前监控目标的 HWND
 
   // ── 仪表盘统计数据 ─────────────────────────────
   const stats = useMemo(() => {
@@ -72,7 +82,7 @@ const MonitorRoomPage: FC = () => {
     sm?.start()
 
     // 监听桌面帧
-    const onFrame = (frame: { dataUrl: string; timestamp: number }) => {
+    const onFrame = (frame: any) => {
       setScreen((prev) => {
         if (prev.type === 'idle' || prev.type === 'desktop') {
           return { type: 'desktop', dataUrl: frame.dataUrl, timestamp: frame.timestamp }
@@ -81,6 +91,49 @@ const MonitorRoomPage: FC = () => {
       })
     }
     sm?.onFrame(onFrame)
+
+    // ── 自动识别窗口并启动 PrintWindow 捕获 ──
+    if (!autoStartedRef.current) {
+      autoStartedRef.current = true
+      try {
+        const list: WinEntry[] = sm?.listWindows() ?? []
+        const sorted = list
+          .filter((w) => w.title.trim() && !w.isMinimized && w.width > 100 && w.height > 100)
+          .sort((a, b) => b.width * b.height - a.width * a.height)
+        setWinList(sorted)
+        if (sorted.length > 0) {
+          targetHwndRef.current = sorted[0].hwnd
+          sm?.setTarget(sorted[0].hwnd, sorted[0].title, sorted[0].width, sorted[0].height)
+          setCaptureInfo(`🎯 1/${sorted.length} ${sorted[0].title}`)
+        } else {
+          setCaptureInfo('⏳ 等待可用窗口...')
+        }
+      } catch {
+        setCaptureInfo('⏳ 窗口枚举失败')
+      }
+    }
+
+    // ── 定时刷新窗口列表 + 窗口关闭自动切换 ──────
+    const refreshInterval = setInterval(() => {
+      try {
+        const sm2 = (window as any).screenMonitor
+        const freshList: WinEntry[] = sm2?.listWindows() ?? []
+        const sorted = freshList
+          .filter((w) => w.title.trim() && !w.isMinimized && w.width > 100 && w.height > 100)
+          .sort((a, b) => b.width * b.height - a.width * a.height)
+
+        // 当前目标窗口是否还在？
+        const currentHwnd = targetHwndRef.current
+        if (currentHwnd && sorted.length > 0 && !sorted.some((w) => w.hwnd === currentHwnd)) {
+          // 已关闭 → 自动切到第一个
+          const first = sorted[0]
+          targetHwndRef.current = first.hwnd
+          sm2?.setTarget(first.hwnd, first.title, first.width, first.height)
+          setWinIndex(0)
+        }
+        setWinList(sorted)
+      } catch { /* 刷新失败，下次再试 */ }
+    }, 3000)
 
     const onLogAdded = (entry: MonitorLogEntry) => setLogs((prev) => [...prev, entry])
     const onLogRetro = (entry: MonitorLogEntry) => setLogs((prev) => prev.map((l) => (l.id === entry.id ? entry : l)))
@@ -102,7 +155,7 @@ const MonitorRoomPage: FC = () => {
     const off4 = EventEmitter.on(MONITOR_EVENTS.SCREEN_UPDATE as any, onScreenUpdate)
 
     return () => {
-      // 停止桌面截屏
+      clearInterval(refreshInterval)
       const sm = (window as any).screenMonitor
       sm?.offFrame(onFrame)
       sm?.stop()
@@ -113,6 +166,20 @@ const MonitorRoomPage: FC = () => {
       })()
     }
   }, [])
+
+  // ── 窗口列表变化时同步状态 + 修正索引 ──────────
+  useEffect(() => {
+    if (winList.length > 0) {
+      // 如果当前索引越界（窗口被关闭），回退到第一个
+      if (winIndex >= winList.length) {
+        setWinIndex(0)
+      }
+      const target = winList[winIndex] || winList[0]
+      setCaptureInfo(`🎯 ${Math.min(winIndex + 1, winList.length)}/${winList.length} ${target.title}`)
+    } else {
+      setCaptureInfo('⏳ 等待可用窗口...')
+    }
+  }, [winList, winIndex])
 
   // 终端输出自动滚底
   useEffect(() => {
@@ -141,6 +208,23 @@ const MonitorRoomPage: FC = () => {
   const handleRetroAll = useCallback(() => { serviceRef.current.retroAll() }, [])
   const handleRetroOne = useCallback((logId: string) => { serviceRef.current.retroLog(logId) }, [])
   const handleStop = useCallback(() => { serviceRef.current.stopCurrent() }, [])
+
+  // ── 窗口切换（ref 取值，永不闭包过期） ────────────
+  const winListRef = useRef<WinEntry[]>(winList)
+  const winIndexRef = useRef(winIndex)
+  winListRef.current = winList
+  winIndexRef.current = winIndex
+
+  const handleSwitchWindow = useCallback(() => {
+    const list = winListRef.current
+    const idx = winIndexRef.current
+    if (list.length <= 1) return
+    const next = (idx + 1) % list.length
+    setWinIndex(next)
+    targetHwndRef.current = list[next].hwnd
+    const sm = (window as any).screenMonitor
+    sm?.setTarget(list[next].hwnd, list[next].title, list[next].width, list[next].height)
+  }, [])
 
   return (
     <PageContainer>
@@ -171,6 +255,14 @@ const MonitorRoomPage: FC = () => {
         <LeftColumn>
           {/* 左上：实时屏幕（ScreenMonitor 组件） */}
           <ScreenPanel style={{ flex: 3, minHeight: 0 }}>
+            <ScreenStatus>
+              <span>{captureInfo}</span>
+              {winList.length > 1 && (
+                <SwitchBtn onClick={handleSwitchWindow} title="切换到下一个窗口">
+                  ⇄ 切换
+                </SwitchBtn>
+              )}
+            </ScreenStatus>
             <ScreenMonitor terminalLines={terminalLines} defaultFps={2} />
           </ScreenPanel>
 
@@ -846,6 +938,35 @@ const LogStatusBadge = styled.span<{ $status: 'ok' | 'blocked' | 'retro' }>`
         : 'rgba(250,173,20,0.15)'};
   color: ${(p) =>
     p.$status === 'ok' ? '#52c41a' : p.$status === 'blocked' ? '#ff4d4f' : '#faad14'};
+`
+
+// ─── 捕获状态栏 ────────────────────────────────────
+
+const ScreenStatus = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 10px;
+  color: var(--color-text-3, #8892b0);
+  padding: 4px 10px;
+  background: rgba(0,0,0,0.06);
+  border-bottom: 0.5px solid rgba(255,255,255,0.04);
+  flex-shrink: 0;
+  span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+`
+
+const SwitchBtn = styled.button`
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 0.5px solid rgba(255,255,255,0.12);
+  background: rgba(51,140,255,0.12);
+  color: var(--color-primary, #338cff);
+  font-size: 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  &:hover { background: rgba(51,140,255,0.25); }
 `
 
 export default MonitorRoomPage

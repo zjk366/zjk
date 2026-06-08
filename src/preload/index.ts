@@ -912,6 +912,13 @@ const screenMonitorApi = {
   start: () => ipcRenderer.send('screen-monitor:start'),
   stop: () => ipcRenderer.send('screen-monitor:stop'),
   setFps: (fps: number) => ipcRenderer.send('screen-monitor:set-fps', fps),
+  /** 设置 PrintWindow 目标窗口，仅捕获该窗口（排除自身窗口） */
+  setTarget: (hwndStr: string, title?: string, width?: number, height?: number) =>
+    ipcRenderer.send('screen-monitor:set-target', { hwnd: hwndStr, title, width, height }),
+  /** 清除 PrintWindow 目标，恢复全屏截图 */
+  clearTarget: () => ipcRenderer.send('screen-monitor:clear-target'),
+  /** 枚举可用窗口（返回 hwnd/title/pid/尺寸），用于窗口选择器 */
+  listWindows: () => ipcRenderer.sendSync('screen-monitor:list-windows'),
   _frameListeners: new Set<(data: { dataUrl: string; timestamp: number }) => void>(),
 
   onFrame(cb: (data: { dataUrl: string; timestamp: number }) => void): void {
