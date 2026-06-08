@@ -1,10 +1,10 @@
 /**
  * 桌面实时截屏模块
  *
- * 自适应帧率：每次捕获完成后根据耗时动态计算下一次间隔，
- * 避免 setInterval 固定间隔导致的叠加延迟。
+ * 捕获前短暂透明化自身窗口，使截图不包含 CherryStudio 窗口，
+ * 实现"看到窗口背后内容"的效果。
  *
- * 窗口不可见时自动暂停。
+ * 自适应帧率、窗口不可见时自动暂停。
  */
 import { desktopCapturer, ipcMain, type BrowserWindow } from 'electron'
 import { loggerService } from '@logger'
@@ -29,51 +29,52 @@ const state: ScreenMonitorState = {
   timer: null,
 }
 
-/** 截图时计算窗口遮罩区域（裁剪掉 CherryStudio 自身窗口） */
-function getWindowMask(): { x: number; y: number; w: number; h: number } | null {
-  if (!state.win || state.win.isDestroyed()) return null
-  try {
-    const bounds = state.win.getBounds()
-    // 屏幕截图固定 480×270（等比例缩小），按 1080p 基准计算比例
-    const scaleX = 480 / 1920
-    const scaleY = 270 / 1080
-    return {
-      x: Math.round(bounds.x * scaleX),
-      y: Math.round(bounds.y * scaleY),
-      w: Math.round(bounds.width * scaleX),
-      h: Math.round(bounds.height * scaleY),
-    }
-  } catch { return null }
-}
-
+/** 捕获前短暂隐藏窗口，抓取背后桌面，再恢复 */
 async function captureAndPush(): Promise<void> {
   if (!state.win || state.win.isDestroyed() || !state.running || !state.hasListener || state.capturing) return
 
   state.capturing = true
   try {
+    // 1. 窗口透明化
+    state.win.setOpacity(0)
+
+    // 2. 等待一帧让系统重绘（15ms ≈ 60fps 一帧）
+    await new Promise((r) => setTimeout(r, 15))
+
+    // 3. 截屏（此时窗口已透明，不会被拍到）
     const sources = await desktopCapturer.getSources({
       types: ['screen'],
       thumbnailSize: { width: 480, height: 270 },
       fetchWindowIcons: false,
     })
 
+    // 4. 恢复窗口不透明度
+    if (state.win && !state.win.isDestroyed()) {
+      state.win.setOpacity(1)
+    }
+
     if (sources.length === 0 || !state.running) return
 
     const frame = sources[0].thumbnail
     const dataUrl = frame.toDataURL()
-    const mask = getWindowMask()
 
     if (state.win && !state.win.isDestroyed() && state.running) {
-      state.win.webContents.send('screen-monitor:frame', { dataUrl, mask, timestamp: Date.now() })
+      state.win.webContents.send('screen-monitor:frame', { dataUrl, timestamp: Date.now() })
     }
+
+    // 恢复不透明度（兜底，防止上面 setOpacity(1) 因异常没执行到）
+    try {
+      if (state.win && !state.win.isDestroyed()) state.win.setOpacity(1)
+    } catch { /* ok */ }
   } catch (err) {
+    // 无论什么异常都要恢复窗口不透明度
+    try { if (state.win && !state.win.isDestroyed()) state.win.setOpacity(1) } catch { /* ok */ }
     logger.error('Screen capture failed', err as Error)
   } finally {
     state.capturing = false
   }
 }
 
-/** 自适应循环：根据实际捕获耗时 + 目标帧率计算下次调度时间 */
 function scheduleNext(): void {
   if (!state.running) return
   const interval = Math.max(200, Math.round(1000 / state.fps))
@@ -86,7 +87,7 @@ function scheduleNext(): void {
 function startCapture(): void {
   if (state.running) return
   state.running = true
-  logger.info(`Screen capture started at ${state.fps} fps (adaptive)`)
+  logger.info('Screen capture started at 2fps (transparent-window mode)')
   scheduleNext()
 }
 
@@ -97,6 +98,8 @@ function stopCapture(): void {
     clearTimeout(state.timer)
     state.timer = null
   }
+  // 确保窗口可见
+  try { if (state.win && !state.win.isDestroyed()) state.win.setOpacity(1) } catch { /* ok */ }
   logger.info('Screen capture stopped')
 }
 
@@ -117,10 +120,7 @@ function registerIpc(): void {
 
   safeOn('screen-monitor:set-fps', (_event: any, fps: number) => {
     state.fps = Math.max(1, Math.min(10, Math.round(fps)))
-    if (state.running) {
-      stopCapture()
-      startCapture()
-    }
+    if (state.running) { stopCapture(); startCapture() }
   })
 }
 
@@ -129,18 +129,13 @@ export function initScreenMonitor(win: BrowserWindow): void {
     state.win = win
     registerIpc()
 
-    // 窗口最小化／不可见时暂停截屏
     win.on('hide', () => stopCapture())
     win.on('show', () => { if (state.hasListener) startCapture() })
     win.on('minimize', () => stopCapture())
     win.on('restore', () => { if (state.hasListener) startCapture() })
+    win.on('close', () => { stopCapture(); state.win = null })
 
-    win.on('close', () => {
-      stopCapture()
-      state.win = null
-    })
-
-    logger.info('ScreenMonitor initialized (480×270, 2fps adaptive, background-pause)')
+    logger.info('ScreenMonitor initialized (transparent-window capture)')
   } catch (err) {
     logger.error('Failed to init ScreenMonitor', err as Error)
   }
