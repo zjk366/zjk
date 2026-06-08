@@ -93,7 +93,7 @@ function renderWindows(
     const w = windows[0]
     const maxW = uW
     const maxH = uH
-    const scale = Math.min(maxW / w.width, maxH / w.height, 2)
+    const scale = Math.min(maxW / w.width, maxH / w.height, 2.5)
     const dw = Math.round(w.width * scale)
     const dh = Math.round(w.height * scale)
     drawWindowTile(ctx, w, Math.round((cw - dw) / 2), Math.round((ch - dh) / 2), dw, dh)
@@ -111,7 +111,7 @@ function renderWindows(
     const row = Math.floor(i / cols)
     const maxW = cellW - 8
     const maxH = cellH - 8
-    const scale = Math.min(maxW / w.width, maxH / w.height, 1.2)
+    const scale = Math.min(maxW / w.width, maxH / w.height, 1.5)
     const dw = Math.round(w.width * scale)
     const dh = Math.round(w.height * scale)
     const cx = pad + col * (cellW + gap) + (cellW - dw) / 2
