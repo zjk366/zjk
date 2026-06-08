@@ -1,11 +1,10 @@
 /**
  * ScreenMonitor — 桌面实时监控组件
  *
- * - 进入页面自动开始推流，离开自动停止
- * - 截图中已排除 CherryStudio 自身窗口（主进程透明化后截取）
- * - 有终端输出时自动显示终端面板
+ * - 自动截屏推流，离开自动停止
+ * - CherryStudio 自身窗口位置用 blur + 暗色遮罩覆盖，避免递归
  */
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { FC } from 'react'
 import './style.css'
 
@@ -14,12 +13,16 @@ export interface ScreenMonitorProps {
   defaultFps?: number
 }
 
+interface Rect { x: number; y: number; w: number; h: number }
+
 const MAX_TERM_LINES = 500
 
 const ScreenMonitor: FC<ScreenMonitorProps> = ({ terminalLines = [], defaultFps = 2 }) => {
   const imgRef = useRef<HTMLImageElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
   const termEndRef = useRef<HTMLDivElement>(null)
   const prevLenRef = useRef(0)
+  const [maskStyle, setMaskStyle] = useState<React.CSSProperties>({ display: 'none' })
 
   useEffect(() => {
     const sm = (window as any).screenMonitor
@@ -28,8 +31,36 @@ const ScreenMonitor: FC<ScreenMonitorProps> = ({ terminalLines = [], defaultFps 
     sm.setFps(defaultFps)
     sm.start()
 
-    const handler = (data: { dataUrl: string }) => {
+    const handler = (data: { dataUrl: string; windowRect?: Rect }) => {
       if (imgRef.current) imgRef.current.src = data.dataUrl
+
+      // 计算遮罩位置（基于 480×270 → 实际显示尺寸缩放）
+      if (data.windowRect && imgRef.current && containerRef.current) {
+        const img = imgRef.current
+        const imgW = img.naturalWidth || 480
+        const imgH = img.naturalHeight || 270
+        const c = containerRef.current.getBoundingClientRect()
+        const scale = Math.min(c.width / imgW, c.height / imgH)
+        const drawW = imgW * scale
+        const drawH = imgH * scale
+        const ox = (c.width - drawW) / 2
+        const oy = (c.height - drawH) / 2
+        const sf = drawW / 480
+
+        setMaskStyle({
+          position: 'absolute',
+          left: ox + data.windowRect.x * sf,
+          top: oy + data.windowRect.y * sf,
+          width: data.windowRect.w * sf,
+          height: data.windowRect.h * sf,
+          backdropFilter: 'blur(12px)',
+          WebkitBackdropFilter: 'blur(12px)',
+          background: 'rgba(0,0,0,0.25)',
+          borderRadius: 6,
+          pointerEvents: 'none',
+          transition: 'all 0.2s ease',
+        })
+      }
     }
     sm.onFrame(handler)
 
@@ -50,8 +81,9 @@ const ScreenMonitor: FC<ScreenMonitorProps> = ({ terminalLines = [], defaultFps 
 
   return (
     <div className="screen-monitor">
-      <div className="sm-screen">
+      <div className="sm-screen" ref={containerRef}>
         <img ref={imgRef} alt="desktop" className="sm-screen-img" />
+        <div style={maskStyle} />
       </div>
 
       {displayLines.length > 0 && (
