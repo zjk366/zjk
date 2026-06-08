@@ -253,17 +253,59 @@ const MonitorRoomPage: FC = () => {
       <MainArea>
         {/* ===== 左侧区域 ===== */}
         <LeftColumn>
-          {/* 左上：实时屏幕（ScreenMonitor 组件） */}
+          {/* 左上：实时屏幕 — 根据 screen.type 切换视图 */}
           <ScreenPanel style={{ flex: 3, minHeight: 0 }}>
             <ScreenStatus>
-              <span>{captureInfo}</span>
-              {winList.length > 1 && (
+              <span>
+                {screen.type === 'browser'
+                  ? `🌐 ${screen.url}`
+                  : screen.type === 'terminal'
+                    ? `💻 ${screen.command.slice(0, 60)}`
+                    : captureInfo}
+              </span>
+              {screen.type === 'desktop' && winList.length > 1 && (
                 <SwitchBtn onClick={handleSwitchWindow} title="切换到下一个窗口">
                   ⇄ 切换
                 </SwitchBtn>
               )}
             </ScreenStatus>
-            <ScreenMonitor terminalLines={terminalLines} defaultFps={2} />
+
+            {/* ── 空闲 ── */}
+            {screen.type === 'idle' && (
+              <ScreenBody>
+                <ScreenPlaceholder>
+                  <ScreenGlow />
+                  <ScreenText>等待操作…</ScreenText>
+                </ScreenPlaceholder>
+              </ScreenBody>
+            )}
+
+            {/* ── 桌面实时画面（PrintWindow / Canvas） ── */}
+            {screen.type === 'desktop' && (
+              <ScreenMonitor terminalLines={terminalLines} defaultFps={2} />
+            )}
+
+            {/* ── 浏览器截图 ── */}
+            {screen.type === 'browser' && (
+              <BrowserView>
+                <BrowserHeader>{screen.url}</BrowserHeader>
+                <DesktopFrame>
+                  <BrowserImg src={screen.image} alt={screen.url} />
+                </DesktopFrame>
+              </BrowserView>
+            )}
+
+            {/* ── 终端输出 ── */}
+            {screen.type === 'terminal' && (
+              <TerminalView>
+                <TermHeader>$ {screen.command}</TermHeader>
+                {screen.output.map((line, i) => (
+                  <TermLine key={i} $stderr={line.stream === 'stderr'}>{line.text}</TermLine>
+                ))}
+                <TermCursor />
+                <div ref={termEndRef} />
+              </TerminalView>
+            )}
           </ScreenPanel>
 
           {/* 左下：当前任务上下文面板 */}
