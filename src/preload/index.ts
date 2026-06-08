@@ -884,6 +884,29 @@ const windowCaptureApi = {
   },
 }
 
+// ── PrintWindow 窗口捕获桥接 API ────────────────────
+const printWindowApi = {
+  start: () => ipcRenderer.send('printwindow:start'),
+  stop: () => ipcRenderer.send('printwindow:stop'),
+  _frameListeners: new Set<(data: any) => void>(),
+
+  onFrame(cb: (data: any) => void): void {
+    if (this._frameListeners.size === 0) {
+      ipcRenderer.on('printwindow:frame', (_event, data) => {
+        for (const fn of this._frameListeners) fn(data)
+      })
+    }
+    this._frameListeners.add(cb)
+  },
+
+  offFrame(cb: (data: any) => void): void {
+    this._frameListeners.delete(cb)
+    if (this._frameListeners.size === 0) {
+      ipcRenderer.removeAllListeners('printwindow:frame')
+    }
+  },
+}
+
 // ── 屏幕监控桥接 API ──────────────────────────────
 const screenMonitorApi = {
   start: () => ipcRenderer.send('screen-monitor:start'),
@@ -915,6 +938,7 @@ if (process.contextIsolated) {
     contextBridge.exposeInMainWorld('api', api)
     contextBridge.exposeInMainWorld('screenMonitor', screenMonitorApi)
     contextBridge.exposeInMainWorld('windowCapture', windowCaptureApi)
+    contextBridge.exposeInMainWorld('printWindow', printWindowApi)
   } catch (error) {
     console.error('[Preload]Failed to expose APIs:', error as Error)
   }
@@ -923,6 +947,7 @@ if (process.contextIsolated) {
   window.api = api
   ;(window as any).screenMonitor = screenMonitorApi
   ;(window as any).windowCapture = windowCaptureApi
+  ;(window as any).printWindow = printWindowApi
 }
 
 export type WindowApiType = typeof api
