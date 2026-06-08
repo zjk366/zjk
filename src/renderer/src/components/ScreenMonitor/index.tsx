@@ -12,13 +12,13 @@ import './style.css'
 export interface ScreenMonitorProps {
   /** AI 终端输出行，由外部传入（如 MonitorService） */
   terminalLines?: string[]
-  /** 默认帧率，默认 5 */
+  /** 默认帧率，默认 3 */
   defaultFps?: number
 }
 
 const MAX_TERM_LINES = 500
 
-const ScreenMonitor: FC<ScreenMonitorProps> = ({ terminalLines = [], defaultFps = 5 }) => {
+const ScreenMonitor: FC<ScreenMonitorProps> = ({ terminalLines = [], defaultFps = 3 }) => {
   const imgRef = useRef<HTMLImageElement>(null)
   const termEndRef = useRef<HTMLDivElement>(null)
   const prevLenRef = useRef(0)
