@@ -34,7 +34,7 @@ async function captureAndPush(): Promise<void> {
   try {
     const sources = await desktopCapturer.getSources({
       types: ['screen'],
-      thumbnailSize: { width: 1280, height: 720 },
+      thumbnailSize: { width: 1920, height: 1080 },
       fetchWindowIcons: false,
     })
 

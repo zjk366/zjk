@@ -157,6 +157,8 @@ const ScreenMonitor: FC<ScreenMonitorProps> = ({ terminalLines = [], defaultFps 
     canvas.height = ch
     const ctx = canvas.getContext('2d')
     if (!ctx) return
+    ctx.imageSmoothingEnabled = true
+    ctx.imageSmoothingQuality = 'high'
 
     if (modeRef.current === 'window' && winRef.current?.length) {
       renderWindows(ctx, cw, ch, winRef.current)
