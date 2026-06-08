@@ -29,6 +29,23 @@ const state: ScreenMonitorState = {
   timer: null,
 }
 
+/** 截图时计算窗口遮罩区域（裁剪掉 CherryStudio 自身窗口） */
+function getWindowMask(): { x: number; y: number; w: number; h: number } | null {
+  if (!state.win || state.win.isDestroyed()) return null
+  try {
+    const bounds = state.win.getBounds()
+    // 屏幕截图固定 480×270（等比例缩小），按 1080p 基准计算比例
+    const scaleX = 480 / 1920
+    const scaleY = 270 / 1080
+    return {
+      x: Math.round(bounds.x * scaleX),
+      y: Math.round(bounds.y * scaleY),
+      w: Math.round(bounds.width * scaleX),
+      h: Math.round(bounds.height * scaleY),
+    }
+  } catch { return null }
+}
+
 async function captureAndPush(): Promise<void> {
   if (!state.win || state.win.isDestroyed() || !state.running || !state.hasListener || state.capturing) return
 
@@ -44,10 +61,10 @@ async function captureAndPush(): Promise<void> {
 
     const frame = sources[0].thumbnail
     const dataUrl = frame.toDataURL()
-    const timestamp = Date.now()
+    const mask = getWindowMask()
 
     if (state.win && !state.win.isDestroyed() && state.running) {
-      state.win.webContents.send('screen-monitor:frame', { dataUrl, timestamp })
+      state.win.webContents.send('screen-monitor:frame', { dataUrl, mask, timestamp: Date.now() })
     }
   } catch (err) {
     logger.error('Screen capture failed', err as Error)
