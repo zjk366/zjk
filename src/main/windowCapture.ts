@@ -19,6 +19,7 @@ interface WindowSource {
   id: string
   name: string
   dataUrl: string
+  pngBuffer?: Buffer
   x: number
   y: number
   width: number
@@ -51,7 +52,7 @@ async function captureAndPush(): Promise<void> {
   try {
     const sources = await desktopCapturer.getSources({
       types: ['window'],
-      thumbnailSize: { width: 1920, height: 1080 },
+      thumbnailSize: { width: 2560, height: 1440 },
       fetchWindowIcons: false,
     })
 
@@ -65,10 +66,13 @@ async function captureAndPush(): Promise<void> {
       const size = src.thumbnail.getSize()
       if (size.width < 30 || size.height < 30) continue
 
+      // toPNG() 返回 Buffer，IPC 自动序列化为 Uint8Array（比 base64 小 33%）
+      const pngBuffer = src.thumbnail.toPNG()
       windows.push({
         id: src.id,
         name: src.name,
-        dataUrl: src.thumbnail.toDataURL(),
+        dataUrl: '',  // 不再使用
+        pngBuffer,    // Uint8Array 原始 PNG 字节
         x: 0, y: 0,
         width: size.width,
         height: size.height,

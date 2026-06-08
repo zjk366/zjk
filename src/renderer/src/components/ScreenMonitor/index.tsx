@@ -16,14 +16,40 @@ export interface ScreenMonitorProps {
 
 interface WindowInfo {
   id: string; name: string; dataUrl: string; width: number; height: number
+  pngBuffer?: Uint8Array  // 主进程传来的原始 PNG 字节
 }
 
 const MAX_TERM_LINES = 500
 const IMG_CACHE = new Map<string, HTMLImageElement>()
+const BLOB_URL_CACHE = new Map<string, string>()
 
-function getOrCreateImage(dataUrl: string): HTMLImageElement {
-  let img = IMG_CACHE.get(dataUrl)
-  if (!img) { img = new Image(); img.src = dataUrl; IMG_CACHE.set(dataUrl, img) }
+/** 将 Uint8Array PNG 转为 Blob URL，缓存复用 */
+function getBlobUrl(key: string, data: Uint8Array): string {
+  const existing = BLOB_URL_CACHE.get(key)
+  if (existing) return existing
+  // 释放旧 Blob URL
+  if (BLOB_URL_CACHE.size > 50) {
+    const first = BLOB_URL_CACHE.keys().next().value
+    if (first) { URL.revokeObjectURL(BLOB_URL_CACHE.get(first)!); BLOB_URL_CACHE.delete(first) }
+  }
+  const blob = new Blob([data], { type: 'image/png' })
+  const url = URL.createObjectURL(blob)
+  BLOB_URL_CACHE.set(key, url)
+  return url
+}
+
+function getOrCreateImage(dataUrl: string, pngBuffer?: Uint8Array): HTMLImageElement {
+  const key = pngBuffer ? `buf_${dataUrl.length}` : dataUrl
+  let img = IMG_CACHE.get(key)
+  if (!img) {
+    img = new Image()
+    if (pngBuffer) {
+      img.src = getBlobUrl(key, pngBuffer)
+    } else {
+      img.src = dataUrl
+    }
+    IMG_CACHE.set(key, img)
+  }
   return img
 }
 
@@ -35,7 +61,7 @@ function drawWindowTile(
   dw: number, dh: number,
 ) {
   const titleH = Math.min(dw * 0.05 + 10, 22)
-  const img = getOrCreateImage(w.dataUrl)
+  const img = getOrCreateImage(w.dataUrl, w.pngBuffer)
   const imgReady = img.complete && img.naturalWidth > 0
 
   // 阴影
@@ -191,13 +217,18 @@ const ScreenMonitor: FC<ScreenMonitorProps> = ({ terminalLines = [], defaultFps 
       if (data.type === 'windows' && data.windows?.length > 0) {
         modeRef.current = 'window'
         winRef.current = data.windows
-        // 预加载图片（后台加载，不阻塞渲染）
+        // 预加载图片（后台加载）
         for (const w of data.windows) {
-          if (!IMG_CACHE.has(w.dataUrl)) {
+          const key = w.pngBuffer ? `buf_${w.id}` : w.dataUrl
+          if (!IMG_CACHE.has(key)) {
             const img = new Image()
             img.onload = () => schedule()
-            img.src = w.dataUrl
-            IMG_CACHE.set(w.dataUrl, img)
+            if (w.pngBuffer) {
+              img.src = getBlobUrl(key, w.pngBuffer)
+            } else {
+              img.src = w.dataUrl
+            }
+            IMG_CACHE.set(key, img)
           }
         }
         schedule()
