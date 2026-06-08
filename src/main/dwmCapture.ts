@@ -145,9 +145,9 @@ function cleanup() {
  *
  * @param srcHwnd - 源窗口句柄 Buffer
  * @param maxWidth - 最大输出宽度
- * @returns { pngBuffer: Buffer, width, height } | null
+ * @returns { rawBuffer: Buffer, width, height, timestamp } | null
  */
-export async function captureWindowDwm(srcHwnd: Buffer, maxWidth = 960): Promise<Record<string, any> | null> {
+export async function captureWindowDwm(srcHwnd: Buffer, maxWidth = 0): Promise<Record<string, any> | null> {
   if (!srcHwnd || !IsWindow(srcHwnd)) { logger.warn('Source window invalid'); return null }
 
   const srcRect = koffi.new(RECT)
@@ -156,9 +156,6 @@ export async function captureWindowDwm(srcHwnd: Buffer, maxWidth = 960): Promise
   const sh = srcRect.bottom - srcRect.top
   if (sw < 10 || sh < 10) return null
 
-  const sc = Math.min(1, maxWidth / sw)
-  const ow = Math.round(sw * sc)
-  const oh = Math.round(sh * sc)
   frameCount++
 
   // GDI 资源 —— finally 中释放
@@ -225,11 +222,14 @@ export async function captureWindowDwm(srcHwnd: Buffer, maxWidth = 960): Promise
       pixels[i] = r; pixels[i + 2] = b
     }
 
-    // 编码为 PNG
-    const { nativeImage } = require('electron')
-    let img = nativeImage.createFromBitmap(pixels, { width: sw, height: sh })
-    if (ow !== sw || oh !== sh) img = img.resize({ width: ow, height: oh, quality: 'better' })
-    return { pngBuffer: img.toPNG(), width: ow, height: oh }
+    // 返回 RAW RGBA Buffer（前端 Canvas putImageData 直接渲染，零编解码开销）
+    // 如需缩放，由前端 Canvas 统一处理
+    return {
+      rawBuffer: pixels,
+      width: sw,
+      height: sh,
+      timestamp: Date.now(),
+    }
   } catch (e) {
     logger.error('captureDwm error', e)
     return null

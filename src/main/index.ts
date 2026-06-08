@@ -192,10 +192,10 @@ if (!app.requestSingleInstanceLock()) {
 
     // PrintWindow 原生模块（DLL 方式，无 PowerShell 开销）
     try {
-      const { initWindowCaptureNative } = await import('./windowCaptureNative')
-      initWindowCaptureNative(mainWindow)
+      const { initDwmCaptureIpc } = await import('./dwmCaptureIpc')
+      initDwmCaptureIpc(mainWindow)
     } catch (err) {
-      logger.warn('Native WindowCapture init failed, will use screen fallback', err as Error)
+      logger.warn('DwmCaptureIpc init failed', err as Error)
     }
 
     new TrayService()
