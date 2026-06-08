@@ -36,7 +36,7 @@ function drawWindowTile(
 ) {
   const titleH = Math.min(dw * 0.05 + 10, 22)
   const img = getOrCreateImage(w.dataUrl)
-  if (!img.complete || !img.naturalWidth) return
+  const imgReady = img.complete && img.naturalWidth > 0
 
   // 阴影
   ctx.save()
@@ -63,8 +63,13 @@ function drawWindowTile(
   const title = w.name.length > 32 ? w.name.slice(0, 30) + '…' : w.name
   ctx.fillText(title, x + dw / 2, y + titleH / 2 + 1)
 
-  // 窗口内容
-  ctx.drawImage(img, x + 1, y + titleH + 1, dw - 2, dh - titleH - 2)
+  // 窗口内容（图片未加载时显示灰色占位）
+  if (imgReady) {
+    ctx.drawImage(img, x + 1, y + titleH + 1, dw - 2, dh - titleH - 2)
+  } else {
+    ctx.fillStyle = '#2a2e3a'
+    ctx.fillRect(x + 1, y + titleH + 1, dw - 2, dh - titleH - 2)
+  }
 }
 
 /** 绘制所有窗口合成 */
@@ -160,17 +165,17 @@ const ScreenMonitor: FC<ScreenMonitorProps> = ({ terminalLines = [], defaultFps 
     ctx.imageSmoothingEnabled = true
     ctx.imageSmoothingQuality = 'high'
 
-    if (modeRef.current === 'window' && winRef.current?.length) {
-      renderWindows(ctx, cw, ch, winRef.current)
-    } else if (screenRef.current) {
+    // 始终绘制屏幕截图作为背景（任何模式都有兜底）
+    if (screenRef.current) {
       renderScreen(ctx, cw, ch, screenRef.current)
     } else {
       ctx.fillStyle = '#1a1e2a'
       ctx.fillRect(0, 0, cw, ch)
-      ctx.fillStyle = '#8892b0'
-      ctx.font = '13px sans-serif'
-      ctx.textAlign = 'center'
-      ctx.fillText('等待桌面画面...', cw / 2, ch / 2)
+    }
+
+    // 窗口模式：在屏幕背景上叠加窗口缩略图
+    if (modeRef.current === 'window' && winRef.current?.length) {
+      renderWindows(ctx, cw, ch, winRef.current)
     }
     rafRef.current = 0
   }
@@ -180,43 +185,36 @@ const ScreenMonitor: FC<ScreenMonitorProps> = ({ terminalLines = [], defaultFps 
   useEffect(() => {
     const wc = (window as any).windowCapture
     const sm = (window as any).screenMonitor
-    let windowActive = false
 
-    const preloadAndRender = (windows: WindowInfo[]) => {
-      winRef.current = windows
-      // 预加载所有图片，全部完成后渲染一次
-      let loaded = 0
-      const total = windows.length
-      if (total === 0) return schedule()
-      for (const w of windows) {
-        const img = new Image()
-        img.onload = () => { loaded++; if (loaded >= total) schedule() }
-        img.onerror = () => { loaded++; if (loaded >= total) schedule() }
-        img.src = w.dataUrl
-        // 缓存到 IMG_CACHE
-        IMG_CACHE.set(w.dataUrl, img)
-      }
-    }
-
+    // 窗口数据到达 → 立即缓存，不阻塞渲染
     const onWindows = (data: any) => {
       if (data.type === 'windows' && data.windows?.length > 0) {
-        if (!windowActive) { windowActive = true; sm?.stop() }
         modeRef.current = 'window'
-        preloadAndRender(data.windows)
-      } else if (data.type === 'empty' && modeRef.current === 'window') {
-        windowActive = false
+        winRef.current = data.windows
+        // 预加载图片（后台加载，不阻塞渲染）
+        for (const w of data.windows) {
+          if (!IMG_CACHE.has(w.dataUrl)) {
+            const img = new Image()
+            img.onload = () => schedule()
+            img.src = w.dataUrl
+            IMG_CACHE.set(w.dataUrl, img)
+          }
+        }
+        schedule()
+      } else if (data.type === 'empty') {
+        // 无窗口时立即切到截屏（屏幕帧已缓存）
         modeRef.current = 'screen'
-        sm?.setFps(defaultFps)
-        sm?.start()
-        setTimeout(() => schedule(), 100)
+        winRef.current = null
+        schedule()
       }
     }
     wc?.start()
     wc?.onFrame(onWindows)
 
+    // 屏幕截图始终后台运行（低开销），兜底显示 + 窗口背景
     const onScreen = (data: { dataUrl: string }) => {
       screenRef.current = data.dataUrl
-      if (modeRef.current === 'screen') schedule()
+      schedule() // 窗口模式下也会触发→背景刷新
     }
     sm?.setFps(defaultFps)
     sm?.start()
