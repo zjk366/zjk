@@ -7,8 +7,10 @@
  *
  * 使用 N-API (node-addon-api) 构建。
  */
+#define NOMINMAX
 #include <napi.h>
 #include <windows.h>
+#include <dwmapi.h>
 #include <wincodec.h>
 #include <vector>
 #include <string>
@@ -17,6 +19,46 @@
 
 #pragma comment(lib, "ole32.lib")
 #pragma comment(lib, "windowscodecs.lib")
+#pragma comment(lib, "dwmapi.lib")
+
+// ─── 进程名黑名单（部分匹配） ─────────────────────────
+static const char* PROCESS_BLACKLIST[] = {
+    "TextInputHost.exe",
+    "ShellExperienceHost.exe",
+    "SearchHost.exe",
+    "StartMenuExperienceHost.exe",
+    "ntvdm.exe",
+    "nvOverlay",
+    "RTSS",
+    "GameBar",
+    "ApplicationFrameHost.exe",
+    "backgroundTaskHost.exe",
+    "RuntimeBroker.exe",
+    "sihost.exe",
+    "taskhostw.exe",
+    nullptr
+};
+
+static bool IsBlacklistedProcess(DWORD pid) {
+    HANDLE hProc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    if (!hProc) return false;
+    char path[MAX_PATH] = { 0 };
+    DWORD size = MAX_PATH;
+    bool blacklisted = false;
+    if (QueryFullProcessImageNameA(hProc, 0, path, &size)) {
+        // 提取文件名
+        char* fname = path;
+        for (char* p = path; *p; p++) if (*p == '\\') fname = p + 1;
+        for (int i = 0; PROCESS_BLACKLIST[i]; i++) {
+            if (strstr(fname, PROCESS_BLACKLIST[i]) != nullptr) {
+                blacklisted = true;
+                break;
+            }
+        }
+    }
+    CloseHandle(hProc);
+    return blacklisted;
+}
 
 // ─── 窗口枚举 ──────────────────────────────────────
 
@@ -34,32 +76,56 @@ struct EnumParam {
 
 static BOOL CALLBACK EnumWindowProc(HWND hwnd, LPARAM lParam) {
     auto* p = reinterpret_cast<EnumParam*>(lParam);
+
+    // A: 可见性检查
     if (!IsWindowVisible(hwnd)) return TRUE;
+    // 最小化窗口跳过
     if (IsIconic(hwnd)) return TRUE;
 
-    // 排除自身进程
+    // H: 获取 PID 并排除自身
     DWORD pid = 0;
     GetWindowThreadProcessId(hwnd, &pid);
     if (p->excludePid > 0 && pid == p->excludePid) return TRUE;
 
+    // B: 标题检查
     int len = GetWindowTextLengthW(hwnd);
     if (len < 2) return TRUE;
-
     std::wstring wstr(len + 1, L'\0');
     GetWindowTextW(hwnd, &wstr[0], len + 1);
     int mbLen = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, nullptr, 0, nullptr, nullptr);
     std::string title;
     if (mbLen > 1) {
-        title.resize(mbLen - 1);
-        WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, &title[0], mbLen, nullptr, nullptr);
+        title.resize(mbLen);
+        int actualLen = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, &title[0], mbLen, nullptr, nullptr);
+        if (actualLen > 1) title.resize(actualLen - 1); // 去掉 null 终止符
     }
     if (title.empty()) return TRUE;
 
+    // C: 样式检查 — 必须有 WS_CAPTION（真实窗口才有标题栏）
+    LONG style = GetWindowLong(hwnd, GWL_STYLE);
+    if (!(style & WS_CAPTION)) return TRUE;
+
+    // D: 扩展样式过滤
+    LONG exStyle = GetWindowLong(hwnd, GWL_EXSTYLE);
+    if (exStyle & WS_EX_TOOLWINDOW) return TRUE;        // 工具条窗口
+    if (exStyle & WS_EX_TRANSPARENT) return TRUE;       // 透明穿透窗口
+    if ((exStyle & WS_EX_NOACTIVATE) && (exStyle & WS_EX_LAYERED)) return TRUE; // 无激活+透明
+
+    // E: DWM Cloak 检查（UWP 后台/虚拟桌面隐藏窗口）
+    DWORD cloak = 0;
+    if (SUCCEEDED(DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, &cloak, sizeof(cloak)))) {
+        if (cloak != 0) return TRUE;
+    }
+
+    // F: 尺寸检查
     RECT rect;
     if (!GetWindowRect(hwnd, &rect)) return TRUE;
     int w = rect.right - rect.left;
     int h = rect.bottom - rect.top;
-    if (w < 60 || h < 60 || w > 4000 || h > 3000) return TRUE;
+    if (w < 100 || h < 100 || w > 4000 || h > 3000) return TRUE;
+
+    // G: 进程名黑名单
+    if (IsBlacklistedProcess(pid)) return TRUE;
 
     p->list->push_back({ hwnd, title, rect, pid });
     return TRUE;
@@ -78,7 +144,8 @@ static bool CaptureWindowToPng(HWND hwnd, int width, int height, std::vector<uns
     if (!hBitmap) { DeleteDC(hdcMem); ReleaseDC(hwnd, hdcWindow); return false; }
 
     SelectObject(hdcMem, hBitmap);
-    BOOL ok = PrintWindow(hwnd, hdcMem, 0);
+    // PW_RENDERFULLCONTENT = 2: 强制渲染完整窗口内容（含 DWM 合成内容）
+    BOOL ok = PrintWindow(hwnd, hdcMem, 2);
     if (!ok) { DeleteObject(hBitmap); DeleteDC(hdcMem); ReleaseDC(hwnd, hdcWindow); return false; }
 
     // 获取 BITMAP 信息
@@ -90,12 +157,13 @@ static bool CaptureWindowToPng(HWND hwnd, int width, int height, std::vector<uns
     std::vector<unsigned char> raw(stride * bmp.bmHeight);
     GetBitmapBits(hBitmap, (LONG)raw.size(), raw.data());
 
-    // 翻转并转换 BGRA → RGBA
+    // 转换 BGRA → RGBA（无翻转，PrintWindow 已返回正序）
     int totalPixels = bmp.bmWidth * bmp.bmHeight;
     std::vector<unsigned char> rgba(totalPixels * 4);
+    bool hasContent = false;
     for (int y = 0; y < bmp.bmHeight; y++) {
         const unsigned char* src = raw.data() + y * stride;
-        unsigned char* dst = rgba.data() + (bmp.bmHeight - 1 - y) * bmp.bmWidth * 4;
+        unsigned char* dst = rgba.data() + y * bmp.bmWidth * 4;
         for (int x = 0; x < bmp.bmWidth; x++) {
             int si = x * 4;
             int di = x * 4;
@@ -104,11 +172,21 @@ static bool CaptureWindowToPng(HWND hwnd, int width, int height, std::vector<uns
             dst[di + 2] = src[si + 0];  // B
             dst[di + 3] = 255;           // A
         }
+        // 采样检查：每行第 5 个像素，有非零 RGB 即标记有内容
+        if (!hasContent && y % 20 == 0) {
+            for (int x = 0; x < bmp.bmWidth; x += 20) {
+                int si = x * 4;
+                if (raw[si + 2] || raw[si + 1] || raw[si + 0]) { hasContent = true; break; }
+            }
+        }
     }
 
     DeleteObject(hBitmap);
     DeleteDC(hdcMem);
     ReleaseDC(hwnd, hdcWindow);
+
+    // 全黑/透明窗口判定
+    if (!hasContent) return false;
 
     // 使用 WIC (Windows Imaging Component) 编码为 PNG
     bool saved = false;
@@ -242,6 +320,7 @@ Napi::Value CaptureWindow(const Napi::CallbackInfo& info) {
 
     std::vector<unsigned char> pngData;
     if (!CaptureWindowToPng(hwnd, capW, capH, pngData)) {
+        Napi::Error::New(env, "BLANK_FRAME").ThrowAsJavaScriptException();
         return env.Null();
     }
 

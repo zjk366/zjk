@@ -12,7 +12,9 @@
         "-lgdi32",
         "-luser32",
         "-lole32",
-        "-lwindowscodecs"
+        "-lwindowscodecs",
+        "-ldwmapi",
+        "-lshlwapi"
       ],
       "defines": [ "NAPI_DISABLE_CPP_EXCEPTIONS" ],
       "msvs_settings": {
