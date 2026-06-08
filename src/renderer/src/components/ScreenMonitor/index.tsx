@@ -1,8 +1,8 @@
 /**
- * ScreenMonitor — PrintWindow 原生截图显示 + 全屏截图兜底
+ * ScreenMonitor — 全屏截图显示
  *
- * 优先使用 PrintWindow 捕获其它窗口（排除自身、系统覆盖层、透明窗口），
- * PrintWindow 不可用时降级到全屏截图。
+ * 使用 desktopCapturer 全屏截图，1920×1080，2fps。
+ * 包含自身窗口（所有屏幕共享工具的标准行为）。
  */
 import { useEffect, useRef } from 'react'
 import type { FC } from 'react'
@@ -19,34 +19,18 @@ const ScreenMonitor: FC<ScreenMonitorProps> = ({ terminalLines = [], defaultFps 
   const imgRef = useRef<HTMLImageElement>(null)
   const termEndRef = useRef<HTMLDivElement>(null)
   const prevLenRef = useRef(0)
-  const pwReceivedRef = useRef(false)
 
   useEffect(() => {
-    const pw = (window as any).printWindow
     const sm = (window as any).screenMonitor
-
-    // PrintWindow 捕获（优先，JPEG 编码低延迟）
-    pw?.onFrame((data: any) => {
-      if (!data.windows?.length) return
-      const w = data.windows[0]
-      if (!w.pngBuffer?.length) return
-      pwReceivedRef.current = true
-      const blob = new Blob([w.pngBuffer], { type: 'image/jpeg' })
-      const url = URL.createObjectURL(blob)
-      if (imgRef.current) imgRef.current.src = url
-    })
-    pw?.start()
-
-    // 全屏截图兜底（PrintWindow 无数据时显示）
-    sm?.onFrame((d: { dataUrl: string }) => {
-      if (!pwReceivedRef.current && imgRef.current) {
-        imgRef.current.src = d.dataUrl
-      }
-    })
-    sm?.start()
-
-    return () => { pw?.stop(); sm?.stop() }
-  }, [])
+    if (!sm) return
+    sm.setFps(defaultFps)
+    sm.start()
+    const handler = (data: { dataUrl: string }) => {
+      if (imgRef.current) imgRef.current.src = data.dataUrl
+    }
+    sm.onFrame(handler)
+    return () => { sm.offFrame(handler); sm.stop() }
+  }, [defaultFps])
 
   useEffect(() => {
     if (terminalLines.length > prevLenRef.current && termEndRef.current) {

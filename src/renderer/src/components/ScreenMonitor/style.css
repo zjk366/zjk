@@ -2,31 +2,21 @@
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: #0a0e1a;
+  background: #000;
   overflow: hidden;
 }
 .sm-screen {
   flex: 1;
   position: relative;
   overflow: hidden;
+  background: #000;
   min-height: 0;
 }
-.sm-canvas {
+.sm-screen-img {
   width: 100%;
   height: 100%;
+  object-fit: contain;
   display: block;
-}
-.sm-debug {
-  position: absolute;
-  top: 4px; left: 4px;
-  z-index: 10;
-  font-size: 10px;
-  color: #0f0;
-  background: rgba(0,0,0,0.6);
-  padding: 2px 6px;
-  border-radius: 3px;
-  font-family: monospace;
-  pointer-events: none;
 }
 .sm-terminal {
   flex-shrink: 0;
@@ -38,7 +28,7 @@
 }
 .sm-terminal-header {
   padding: 3px 12px; font-size: 10px; font-weight: 500;
-  color: var(--color-text-3, #8892b0);
+  color: var(--color-text-3,#8892b0);
   text-transform: uppercase; letter-spacing: 0.5px; flex-shrink: 0;
 }
 .sm-terminal-body {
