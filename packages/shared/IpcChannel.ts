@@ -464,5 +464,15 @@ export enum IpcChannel {
   Vault_ListFiles = 'vault:list-files',
   Vault_SelectDirectory = 'vault:select-directory',
   Vault_SetRoot = 'vault:set-root',
-  Vault_GetRoot = 'vault:get-root'
+  Vault_GetRoot = 'vault:get-root',
+
+  // UndoVault
+  UndoVault_Backup = 'undo-vault:backup',
+  UndoVault_BackupContent = 'undo-vault:backup-content',
+  UndoVault_Restore = 'undo-vault:restore',
+  UndoVault_Discard = 'undo-vault:discard',
+  UndoVault_GetEntry = 'undo-vault:get-entry',
+  UndoVault_GetLastEntry = 'undo-vault:get-last-entry',
+  UndoVault_ListEntries = 'undo-vault:list-entries',
+  UndoVault_Cleanup = 'undo-vault:cleanup'
 }

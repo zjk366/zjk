@@ -8,6 +8,7 @@ import type { AISDKWebSearchResult, MCPTool, WebSearchResults, WebSearchSource }
 import { WEB_SEARCH_SOURCE } from '@renderer/types'
 import type { Chunk, ProviderMetadata } from '@renderer/types/chunk'
 import { ChunkType } from '@renderer/types/chunk'
+import type { Response } from '@renderer/types/newMessage'
 import { ProviderSpecificError } from '@renderer/types/provider-specific-error'
 import { formatErrorMessage, isAbortError } from '@renderer/utils/error'
 import type { IdleTimeoutHandle } from '@renderer/utils/IdleTimeoutController'
@@ -35,6 +36,9 @@ export class AiSdkToChunkAdapter {
   private getSessionWasCleared?: () => boolean
   private providerId?: string
   private idleTimeout?: IdleTimeoutHandle
+  private lastFinishReason: string | undefined
+  /** 从 fullStream 累计的完整文本内容，用于在 aiSdkResult.text 失败时的兜底 */
+  private accumulatedText = ''
 
   constructor(
     private onChunk: (chunk: Chunk) => void,
@@ -80,6 +84,11 @@ export class AiSdkToChunkAdapter {
       await this.readFullStream(aiSdkResult.fullStream)
     }
 
+    // 优先使用 adapter 自己累计的文本（从 fullStream 直接读取，更可靠）
+    if (this.accumulatedText) {
+      return this.accumulatedText
+    }
+
     try {
       return await aiSdkResult.text
     } catch (error: any) {
@@ -88,7 +97,10 @@ export class AiSdkToChunkAdapter {
       if (isAbortError(error)) {
         return ''
       }
-      throw error
+      // 如果 aiSdkResult.text 失败（如 NoOutputGeneratedError），但 adapter 已处理了 fullStream
+      // 且 accumulatedText 为空，返回空字符串而不是抛出异常
+      logger.warn('[processStream] aiSdkResult.text failed, returning empty text', error as Error)
+      return ''
     }
   }
 
@@ -130,6 +142,8 @@ export class AiSdkToChunkAdapter {
               })
             }
           }
+          // 流结束时同步累计文本，用于 aiSdkResult.text 兜底
+          this.accumulatedText = final.text
           break
         }
 
@@ -308,6 +322,8 @@ export class AiSdkToChunkAdapter {
 
       case 'finish-step': {
         const { providerMetadata, finishReason } = chunk
+        // 记录 finishReason 供 finish 事件使用
+        this.lastFinishReason = finishReason
         // googel web search
         if (providerMetadata?.google?.groundingMetadata) {
           this.onChunk({
@@ -377,9 +393,13 @@ export class AiSdkToChunkAdapter {
           total_tokens: chunk.totalUsage?.totalTokens || 0
         }
         const metrics = this.buildMetrics(chunk.totalUsage)
-        const baseResponse = {
+        const finishReason = this.lastFinishReason
+        const baseResponse: Record<string, unknown> = {
           text: final.text || '',
           reasoning_content: final.reasoningContent || ''
+        }
+        if (finishReason && finishReason !== 'stop' && finishReason !== 'tool-calls') {
+          baseResponse.finishReason = finishReason
         }
 
         this.onChunk({
@@ -388,7 +408,7 @@ export class AiSdkToChunkAdapter {
             ...baseResponse,
             usage: { ...usage },
             metrics: metrics ? { ...metrics } : undefined
-          }
+          } as Response
         })
         this.onChunk({
           type: ChunkType.LLM_RESPONSE_COMPLETE,
@@ -396,7 +416,7 @@ export class AiSdkToChunkAdapter {
             ...baseResponse,
             usage: { ...usage },
             metrics: metrics ? { ...metrics } : undefined
-          }
+          } as Response
         })
         this.resetTimingState()
         break

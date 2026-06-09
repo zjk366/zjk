@@ -235,6 +235,14 @@ if (!app.requestSingleInstanceLock()) {
       console.error('Failed to register vault IPC:', err)
     }
 
+    // 注册 UndoVault IPC 通道
+    try {
+      const { registerUndoVaultIpc } = await import('./ipc/undoVaultIpc')
+      registerUndoVaultIpc()
+    } catch (err) {
+      console.error('Failed to register undoVault IPC:', err)
+    }
+
     localTransferService.startDiscovery({ resetList: true })
 
     replaceDevtoolsFont(mainWindow)

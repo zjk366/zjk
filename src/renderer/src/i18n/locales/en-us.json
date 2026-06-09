@@ -1092,6 +1092,9 @@
       "context_count": {
         "tip": "Context / Max Context"
       },
+      "dynamic_context": {
+        "tip": "Dynamic context is enabled. Context is limited by token budget."
+      },
       "estimated_tokens": {
         "tip": "Estimated tokens"
       },
@@ -1372,6 +1375,14 @@
       "context_count": {
         "label": "Context",
         "tip": "The number of previous messages to keep in the context."
+      },
+      "dynamic_context": {
+        "label": "Dynamic Context (Token Budget)",
+        "tip": "When enabled, context is truncated by token count instead of message count. Keeps as many messages as fit within the token budget."
+      },
+      "max_context_tokens": {
+        "label": "Context Token Budget",
+        "tip": "The maximum number of tokens allowed for context. Older messages are dropped when this limit is reached. Recommended: 1/3 to 1/2 of the model's context window."
       },
       "max": "Unlimited",
       "max_tokens": {

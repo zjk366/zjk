@@ -74,6 +74,8 @@ asarUnpack:
   - resources/**
   - "**/*.{metal,exp,lib}"
   - "node_modules/@img/sharp-*/**"
+  - "node_modules/koffi/**"
+  - "node_modules/@aspect-build/rules_js/**"
 
 win:
   executableName: Cherry Studio
@@ -81,9 +83,10 @@ win:
   target:
     - target: nsis
     - target: portable
-  signtoolOptions:
-    sign: scripts/win-sign.js
+  # signtoolOptions:
+  #   sign: scripts/win-sign.js
   verifyUpdateCodeSignature: false
+  forceCodeSigning: false
 nsis:
   artifactName: ${productName}-${version}-${arch}-setup.${ext}
   shortcutName: ${productName}

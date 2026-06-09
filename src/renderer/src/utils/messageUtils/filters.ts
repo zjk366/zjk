@@ -74,7 +74,8 @@ export function filterEmptyMessages(messages: Message[]): Message[] {
           MessageBlockType.FILE,
           MessageBlockType.CODE,
           MessageBlockType.TOOL,
-          MessageBlockType.CITATION
+          MessageBlockType.CITATION,
+          MessageBlockType.COMPRESSED
         ].includes(block.type)
       ) {
         hasContent = true

@@ -4,7 +4,7 @@ import i18n from '@renderer/i18n'
 import { EVENT_NAMES, EventEmitter } from '@renderer/services/EventService'
 import { NotificationService } from '@renderer/services/NotificationService'
 import { estimateMessagesUsage } from '@renderer/services/TokenService'
-import { isTodoWriteBlock, updateOneBlock } from '@renderer/store/messageBlock'
+import { isTodoWriteBlock, updateOneBlock, upsertOneBlock } from '@renderer/store/messageBlock'
 import { selectMessagesForTopic } from '@renderer/store/newMessage'
 import { newMessagesActions } from '@renderer/store/newMessage'
 import { toolPermissionsActions } from '@renderer/store/toolPermissions'
@@ -134,6 +134,22 @@ export const createBaseCallbacks = (deps: BaseCallbacksDependencies) => {
     onError: async (error: AISDKError) => {
       logger.debug('onError', error)
       if (NoOutputGeneratedError.isInstance(error)) {
+        logger.warn('[NoOutputGeneratedError] API returned no output, showing error to user')
+        // 不再静默吞掉，改为显示错误
+        const serializableError = serializeError(error)
+        serializableError.message =
+          serializableError.message || i18n.t('message.error.no_output', '模型未生成回复，请重试')
+        const newBlock = createErrorBlock(assistantMsgId, serializableError, {
+          status: MessageBlockStatus.ERROR
+        })
+        dispatch(upsertOneBlock(newBlock))
+        dispatch(
+          newMessagesActions.updateMessage({
+            topicId,
+            messageId: assistantMsgId,
+            updates: { status: AssistantMessageStatus.ERROR, blocks: [newBlock.id] }
+          })
+        )
         return
       }
       const isErrorTypeAbort = isAbortError(error)
@@ -290,6 +306,17 @@ export const createBaseCallbacks = (deps: BaseCallbacksDependencies) => {
       const finalAssistantMsg = finalStateOnComplete.messages.entities[assistantMsgId]
 
       if (status === 'success' && finalAssistantMsg) {
+        // ── finishReason 非正常停止时告警 ──
+        if (response?.finishReason === 'length') {
+          logger.warn(
+            `[FinishReason] Response truncated by max_tokens: ${getMainTextContent(finalAssistantMsg).length} chars`
+          )
+          window?.toast?.warning?.(i18n.t('message.warning.response_truncated', '回复已达到 Token 上限，可能不完整'))
+        } else if (response?.finishReason === 'content_filtered') {
+          logger.warn('[FinishReason] Response content was filtered by API')
+          window?.toast?.warning?.(i18n.t('message.warning.content_filtered', '部分回复内容被 API 过滤'))
+        }
+
         const userMsgId = finalAssistantMsg.askId
         const orderedMsgs = selectMessagesForTopic(finalStateOnComplete, topicId)
         const userMsgIndex = orderedMsgs.findIndex((m) => m.id === userMsgId)

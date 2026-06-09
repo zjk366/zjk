@@ -474,11 +474,16 @@ const api = {
   installUVBinary: () => ipcRenderer.invoke(IpcChannel.App_InstallUvBinary),
   installBunBinary: () => ipcRenderer.invoke(IpcChannel.App_InstallBunBinary),
   installOvmsBinary: () => ipcRenderer.invoke(IpcChannel.App_InstallOvmsBinary),
-  openTerminal: (command: string, packageName?: string) => ipcRenderer.invoke(IpcChannel.App_OpenTerminal, command, packageName),
+  openTerminal: (command: string, packageName?: string) =>
+    ipcRenderer.invoke(IpcChannel.App_OpenTerminal, command, packageName),
   onSkillsUpdated: (callback: (data: any) => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, data: any) => { callback(data) }
+    const listener = (_event: Electron.IpcRendererEvent, data: any) => {
+      callback(data)
+    }
     ipcRenderer.on(IpcChannel.Skill_Updated, listener)
-    return () => { ipcRenderer.off(IpcChannel.Skill_Updated, listener) }
+    return () => {
+      ipcRenderer.off(IpcChannel.Skill_Updated, listener)
+    }
   },
   protocol: {
     onReceiveData: (callback: (data: { url: string; params: any }) => void) => {
@@ -855,6 +860,18 @@ const api = {
         ipcRenderer.removeListener(IpcChannel.Portal_ApiKey, listener)
       }
     }
+  },
+  undoVault: {
+    backup: (filePaths: string[], summary: string): Promise<string | null> =>
+      ipcRenderer.invoke(IpcChannel.UndoVault_Backup, filePaths, summary),
+    backupContent: (filePath: string, content: string, summary: string): Promise<string | null> =>
+      ipcRenderer.invoke(IpcChannel.UndoVault_BackupContent, filePath, content, summary),
+    restore: (entryId: string): Promise<number> => ipcRenderer.invoke(IpcChannel.UndoVault_Restore, entryId),
+    discard: (entryId: string): Promise<boolean> => ipcRenderer.invoke(IpcChannel.UndoVault_Discard, entryId),
+    getEntry: (entryId: string): Promise<any> => ipcRenderer.invoke(IpcChannel.UndoVault_GetEntry, entryId),
+    getLastEntry: (): Promise<string | null> => ipcRenderer.invoke(IpcChannel.UndoVault_GetLastEntry),
+    listEntries: (): Promise<any[]> => ipcRenderer.invoke(IpcChannel.UndoVault_ListEntries),
+    cleanup: (): Promise<number> => ipcRenderer.invoke(IpcChannel.UndoVault_Cleanup)
   }
 }
 
@@ -881,7 +898,7 @@ const windowCaptureApi = {
     if (this._frameListeners.size === 0) {
       ipcRenderer.removeAllListeners('window-capture:frame')
     }
-  },
+  }
 }
 
 // ── PrintWindow 窗口捕获桥接 API ────────────────────
@@ -904,7 +921,7 @@ const printWindowApi = {
     if (this._frameListeners.size === 0) {
       ipcRenderer.removeAllListeners('printwindow:frame')
     }
-  },
+  }
 }
 
 // ── 屏幕监控桥接 API ──────────────────────────────
@@ -935,7 +952,7 @@ const screenMonitorApi = {
     if (this._frameListeners.size === 0) {
       ipcRenderer.removeAllListeners('screen-monitor:frame')
     }
-  },
+  }
 }
 
 // ── 暴露到渲染进程 ─────────────────────────────────

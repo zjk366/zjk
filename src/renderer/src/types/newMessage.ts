@@ -32,7 +32,8 @@ export enum MessageBlockType {
   ERROR = 'error', // 错误信息
   CITATION = 'citation', // 引用类型 (Now includes web search, grounding, etc.)
   VIDEO = 'video', // 视频内容
-  COMPACT = 'compact' // Compact command response
+  COMPACT = 'compact', // Compact command response
+  COMPRESSED = 'compressed' // 上下文压缩块（智能上下文压缩生成）
 }
 
 // 块状态定义
@@ -153,6 +154,15 @@ export interface CompactMessageBlock extends BaseMessageBlock {
   compactedContent: string // 从 <local-command-stdout> 提取的内容
 }
 
+// 上下文压缩块 - 智能上下文压缩生成的摘要块
+export interface CompressedMessageBlock extends BaseMessageBlock {
+  type: MessageBlockType.COMPRESSED
+  summary: string // AI 生成的对话摘要
+  originalMessageCount: number // 被压缩的原始消息数量
+  originalTokenCount: number // 被压缩的原始 token 数
+  compressedTokenCount: number // 压缩后的 token 数
+}
+
 // MessageBlock 联合类型
 export type MessageBlock =
   | PlaceholderMessageBlock
@@ -167,6 +177,7 @@ export type MessageBlock =
   | CitationMessageBlock
   | VideoMessageBlock
   | CompactMessageBlock
+  | CompressedMessageBlock
 
 export enum UserMessageStatus {
   SUCCESS = 'success'
@@ -232,6 +243,7 @@ export interface Response {
   mcpToolResponse?: MCPToolResponse[]
   generateImage?: GenerateImageResponse
   error?: ResponseError
+  finishReason?: 'stop' | 'length' | 'content_filtered' | 'tool-calls' | 'other' | 'error'
 }
 
 // FIXME: Weak type safety. It may be a specific class instance which inherits Error in runtime.

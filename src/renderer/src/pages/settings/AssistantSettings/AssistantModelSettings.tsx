@@ -36,6 +36,12 @@ interface Props {
 const AssistantModelSettings: FC<Props> = ({ assistant, updateAssistant, updateAssistantSettings }) => {
   const [temperature, setTemperature] = useState(assistant?.settings?.temperature ?? DEFAULT_TEMPERATURE)
   const [contextCount, setContextCount] = useState(assistant?.settings?.contextCount ?? DEFAULT_CONTEXTCOUNT)
+  const [enableDynamicContext, setEnableDynamicContext] = useState(
+    assistant?.settings?.enableDynamicContext ?? DEFAULT_ASSISTANT_SETTINGS.enableDynamicContext
+  )
+  const [maxContextTokens, setMaxContextTokens] = useState(
+    assistant?.settings?.maxContextTokens ?? DEFAULT_ASSISTANT_SETTINGS.maxContextTokens
+  )
   const enableMaxTokens = useMemo(
     () => assistant?.settings?.enableMaxTokens ?? DEFAULT_ASSISTANT_SETTINGS.enableMaxTokens,
     [assistant?.settings?.enableMaxTokens]
@@ -212,6 +218,8 @@ const AssistantModelSettings: FC<Props> = ({ assistant, updateAssistant, updateA
   const onReset = () => {
     setTemperature(DEFAULT_ASSISTANT_SETTINGS.temperature)
     setContextCount(DEFAULT_ASSISTANT_SETTINGS.contextCount)
+    setEnableDynamicContext(DEFAULT_ASSISTANT_SETTINGS.enableDynamicContext)
+    setMaxContextTokens(DEFAULT_ASSISTANT_SETTINGS.maxContextTokens)
     setMaxTokens(DEFAULT_ASSISTANT_SETTINGS.maxTokens)
     setTopP(DEFAULT_ASSISTANT_SETTINGS.topP)
     setCustomParameters(DEFAULT_ASSISTANT_SETTINGS.customParameters)
@@ -420,6 +428,76 @@ const AssistantModelSettings: FC<Props> = ({ assistant, updateAssistant, updateA
           </ContextSliderWrapper>
         </Col>
       </Row>
+      <Divider style={{ margin: '10px 0' }} />
+      {/* ── 动态上下文（按 Token 预算） ── */}
+      <SettingRow style={{ minHeight: 30 }}>
+        <HStack alignItems="center">
+          <Label>
+            {t('chat.settings.dynamic_context.label')}
+            <Tooltip title={t('chat.settings.dynamic_context.tip')}>
+              <QuestionIcon />
+            </Tooltip>
+          </Label>
+        </HStack>
+        <Switch
+          checked={enableDynamicContext}
+          onChange={(enabled) => {
+            setEnableDynamicContext(enabled)
+            updateAssistantSettings({ enableDynamicContext: enabled })
+          }}
+        />
+      </SettingRow>
+      {enableDynamicContext && (
+        <Row align="middle" style={{ marginBottom: 10 }}>
+          <Col span={20}>
+            <Label style={{ marginBottom: 4 }}>
+              {t('chat.settings.max_context_tokens.label')}
+              <Tooltip title={t('chat.settings.max_context_tokens.tip')}>
+                <QuestionIcon />
+              </Tooltip>
+            </Label>
+            <Slider
+              min={4000}
+              max={128000}
+              step={1000}
+              onChange={setMaxContextTokens}
+              onChangeComplete={(value) => {
+                if (!isNull(value)) {
+                  updateAssistantSettings({ maxContextTokens: value })
+                }
+              }}
+              value={typeof maxContextTokens === 'number' ? maxContextTokens : 32000}
+              marks={{
+                4000: '4K',
+                16000: '16K',
+                32000: '32K',
+                64000: '64K',
+                128000: '128K'
+              }}
+            />
+          </Col>
+          <Col span={4}>
+            <EditableNumber
+              min={1000}
+              max={512000}
+              step={1000}
+              value={maxContextTokens}
+              changeOnBlur
+              onChange={(value) => {
+                if (!isNull(value)) {
+                  setMaxContextTokens(value)
+                  setTimeoutTimer(
+                    'maxContextTokens_onChange',
+                    () => updateAssistantSettings({ maxContextTokens: value }),
+                    500
+                  )
+                }
+              }}
+              style={{ width: '100%' }}
+            />
+          </Col>
+        </Row>
+      )}
       <Divider style={{ margin: '10px 0' }} />
       <SettingRow style={{ minHeight: 30 }}>
         <HStack alignItems="center">

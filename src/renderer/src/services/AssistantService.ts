@@ -57,7 +57,13 @@ export const DEFAULT_ASSISTANT_SETTINGS = {
   // It would gracefully fallback to prompt if not supported by model.
   toolUseMode: 'function',
   maxToolCalls: 20,
-  enableMaxToolCalls: true
+  enableMaxToolCalls: true,
+  enableDynamicContext: false,
+  maxContextTokens: 32000,
+  enableSmartContext: true,
+  enableContextCompression: true,
+  compressionThreshold: 70,
+  contextReserveRatio: 20
 } as const satisfies AssistantSettings
 
 /**
@@ -138,7 +144,7 @@ export function getDefaultAssistant(): Assistant {
       '',
       '## 安全边界',
       '- 仅从 npm 官方源安装工具，不执行来源不明的命令',
-      '- 涉及系统敏感操作时，在回复中明确告知用户正在执行的操作',
+      '- 涉及系统敏感操作时，在回复中明确告知用户正在执行的操作'
     ].join('\n'),
     topics: [getDefaultTopic('default')],
     messages: [],
@@ -314,7 +320,14 @@ export const getAssistantSettings = (assistant: Assistant): AssistantSettings =>
     enableMaxToolCalls: assistant?.settings?.enableMaxToolCalls ?? DEFAULT_ASSISTANT_SETTINGS.enableMaxToolCalls,
     defaultModel: assistant?.defaultModel ?? DEFAULT_ASSISTANT_SETTINGS.defaultModel,
     reasoning_effort: assistant?.settings?.reasoning_effort ?? DEFAULT_ASSISTANT_SETTINGS.reasoning_effort,
-    customParameters: assistant?.settings?.customParameters ?? DEFAULT_ASSISTANT_SETTINGS.customParameters
+    customParameters: assistant?.settings?.customParameters ?? DEFAULT_ASSISTANT_SETTINGS.customParameters,
+    enableDynamicContext: assistant?.settings?.enableDynamicContext ?? DEFAULT_ASSISTANT_SETTINGS.enableDynamicContext,
+    maxContextTokens: assistant?.settings?.maxContextTokens ?? DEFAULT_ASSISTANT_SETTINGS.maxContextTokens,
+    enableSmartContext: assistant?.settings?.enableSmartContext ?? DEFAULT_ASSISTANT_SETTINGS.enableSmartContext,
+    enableContextCompression:
+      assistant?.settings?.enableContextCompression ?? DEFAULT_ASSISTANT_SETTINGS.enableContextCompression,
+    compressionThreshold: assistant?.settings?.compressionThreshold ?? DEFAULT_ASSISTANT_SETTINGS.compressionThreshold,
+    contextReserveRatio: assistant?.settings?.contextReserveRatio ?? DEFAULT_ASSISTANT_SETTINGS.contextReserveRatio
   }
 }
 

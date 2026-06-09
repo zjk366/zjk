@@ -30,6 +30,19 @@ export const abortCompletion = (id: string) => {
   }
 }
 
+/**
+ * 中止所有正在进行的操作（全局中止）
+ * 用于监控室停止按钮等需要一键完全停止的场景
+ */
+export function abortAllCompletions() {
+  for (const [id, fns] of abortMap.entries()) {
+    for (const fn of [...fns]) {
+      fn()
+      removeAbortController(id, fn)
+    }
+  }
+}
+
 export function createAbortPromise<T>(signal: AbortSignal, finallyPromise: Promise<T>) {
   return new Promise<T>((_resolve, reject) => {
     if (signal.aborted) {

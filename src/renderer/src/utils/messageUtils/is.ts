@@ -4,6 +4,7 @@ import {
   type CitationMessageBlock,
   type CodeMessageBlock,
   type CompactMessageBlock,
+  type CompressedMessageBlock,
   type ErrorMessageBlock,
   type FileMessageBlock,
   type ImageMessageBlock,
@@ -159,6 +160,16 @@ export function isPlaceholderBlock(block: MessageBlock): block is PlaceholderMes
  */
 export function isCompactBlock(block: MessageBlock): block is CompactMessageBlock {
   return block.type === MessageBlockType.COMPACT
+}
+
+/**
+ * Checks if a message block is a Compressed block (smart context compression).
+ * Acts as a TypeScript type guard.
+ * @param block - The message block to check.
+ * @returns True if the block is a CompressedMessageBlock, false otherwise.
+ */
+export function isCompressedBlock(block: MessageBlock): block is CompressedMessageBlock {
+  return block.type === MessageBlockType.COMPRESSED
 }
 
 export function isMessageProcessing(message: Message): boolean {

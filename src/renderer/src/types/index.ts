@@ -195,6 +195,18 @@ export type AssistantSettings = {
   toolUseMode: 'function' | 'prompt'
   maxToolCalls?: number
   enableMaxToolCalls?: boolean
+  /** 启用基于 token 数量的动态上下文截断 */
+  enableDynamicContext?: boolean
+  /** 动态上下文的 token 预算上限（默认 32000） */
+  maxContextTokens?: number
+  /** 启用智能上下文（感知模型上下文窗口，动态调整保留消息数） */
+  enableSmartContext?: boolean
+  /** 启用自动上下文压缩（超阈值时自动总结旧消息为摘要以节约 token） */
+  enableContextCompression?: boolean
+  /** 压缩触发阈值百分比（0-100），上下文使用量超过窗口此比例时触发压缩，默认 70 */
+  compressionThreshold?: number
+  /** 输出预留比例百分比（0-100），预留窗口比例给模型输出，默认 20 */
+  contextReserveRatio?: number
 }
 
 export type AssistantPreset = Omit<Assistant, 'model'> & {

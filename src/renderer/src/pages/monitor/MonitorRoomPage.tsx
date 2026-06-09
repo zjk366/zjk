@@ -7,16 +7,16 @@
  *        + 仪表盘（来自 MonitorService 统计数据）
  * - 右侧：操作日志（Step 2 实现）
  */
+import ScreenMonitor from '@renderer/components/ScreenMonitor'
+import { EventEmitter } from '@renderer/services/EventService'
+import MonitorService, { MONITOR_EVENTS } from '@renderer/services/MonitorService'
+import type { MonitorLogEntry, ScreenContent } from '@renderer/types/monitor'
 import { ArrowLeft } from 'lucide-react'
-import { useTranslation } from 'react-i18next'
 import type { FC } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import styled from 'styled-components'
-import { EventEmitter } from '@renderer/services/EventService'
-import ScreenMonitor from '@renderer/components/ScreenMonitor'
-import type { MonitorLogEntry, ScreenContent } from '@renderer/types/monitor'
-import MonitorService, { MONITOR_EVENTS } from '@renderer/services/MonitorService'
 
 /** 缓存已获取的 skills（避免每次渲染都读） */
 let cachedSkills: { name: string; status: 'active' | 'idle' | 'error' }[] | null = null
@@ -29,13 +29,22 @@ async function loadSkills(): Promise<typeof cachedSkills> {
     const all = await svc.getAll()
     cachedSkills = all.slice(0, 6).map((s) => ({
       name: s.name,
-      status: s.isEnabled ? ('active' as const) : ('idle' as const),
+      status: s.isEnabled ? ('active' as const) : ('idle' as const)
     }))
     return cachedSkills
-  } catch { return null }
+  } catch {
+    return null
+  }
 }
 
-interface WinEntry { hwnd: string; title: string; pid: number; width: number; height: number; isMinimized: boolean }
+interface WinEntry {
+  hwnd: string
+  title: string
+  pid: number
+  width: number
+  height: number
+  isMinimized: boolean
+}
 
 const MonitorRoomPage: FC = () => {
   const { t } = useTranslation()
@@ -72,7 +81,10 @@ const MonitorRoomPage: FC = () => {
     setLogs(svc.getAll())
 
     // 加载 skills
-    loadSkills().then((s) => { if (s) setSkills(s); setSkillsLoaded(true) })
+    loadSkills().then((s) => {
+      if (s) setSkills(s)
+      setSkillsLoaded(true)
+    })
 
     // 初始屏幕状态
     setScreen(serviceRef.current.screen)
@@ -132,12 +144,15 @@ const MonitorRoomPage: FC = () => {
           setWinIndex(0)
         }
         setWinList(sorted)
-      } catch { /* 刷新失败，下次再试 */ }
+      } catch {
+        /* 刷新失败，下次再试 */
+      }
     }, 3000)
 
     const onLogAdded = (entry: MonitorLogEntry) => setLogs((prev) => [...prev, entry])
     const onLogRetro = (entry: MonitorLogEntry) => setLogs((prev) => prev.map((l) => (l.id === entry.id ? entry : l)))
-    const onRetroAll = () => setLogs((prev) => prev.map((l) => (l.status === 'ok' ? { ...l, status: 'retro' as const } : l)))
+    const onRetroAll = () =>
+      setLogs((prev) => prev.map((l) => (l.status === 'ok' ? { ...l, status: 'retro' as const } : l)))
     const onScreenUpdate = (content: ScreenContent) => {
       setScreen(content)
       // 从终端输出中提取文本行给 ScreenMonitor
@@ -161,8 +176,14 @@ const MonitorRoomPage: FC = () => {
       sm?.stop()
 
       ;(async () => {
-        const u1 = await off1; const u2 = await off2; const u3 = await off3; const u4 = await off4
-        u1?.(); u2?.(); u3?.(); u4?.()
+        const u1 = await off1
+        const u2 = await off2
+        const u3 = await off3
+        const u4 = await off4
+        u1?.()
+        u2?.()
+        u3?.()
+        u4?.()
       })()
     }
   }, [])
@@ -199,15 +220,25 @@ const MonitorRoomPage: FC = () => {
     }
     return [...paths.entries()].slice(0, 6).map(([name]) => ({
       name,
-      type: name.endsWith('.png') || name.endsWith('.jpg') ? 'image' as const
-           : name.endsWith('.pdf') ? 'document' as const
-           : 'text' as const,
+      type:
+        name.endsWith('.png') || name.endsWith('.jpg')
+          ? ('image' as const)
+          : name.endsWith('.pdf')
+            ? ('document' as const)
+            : ('text' as const)
     }))
   }, [logs])
 
-  const handleRetroAll = useCallback(() => { serviceRef.current.retroAll() }, [])
-  const handleRetroOne = useCallback((logId: string) => { serviceRef.current.retroLog(logId) }, [])
-  const handleStop = useCallback(() => { serviceRef.current.stopCurrent() }, [])
+  const handleRetroAll = useCallback(async () => {
+    const count = await serviceRef.current.retroAll()
+    if (count > 0) window.toast?.success?.(`已回溯 ${count} 条操作`)
+  }, [])
+  const handleRetroOne = useCallback(async (logId: string) => {
+    await serviceRef.current.retroLog(logId)
+  }, [])
+  const handleStop = useCallback(() => {
+    serviceRef.current.stopCurrent()
+  }, [])
 
   // ── 窗口切换（ref 取值，永不闭包过期） ────────────
   const winListRef = useRef<WinEntry[]>(winList)
@@ -281,9 +312,7 @@ const MonitorRoomPage: FC = () => {
             )}
 
             {/* ── 桌面实时画面（PrintWindow / Canvas） ── */}
-            {screen.type === 'desktop' && (
-              <ScreenMonitor terminalLines={terminalLines} defaultFps={2} />
-            )}
+            {screen.type === 'desktop' && <ScreenMonitor terminalLines={terminalLines} defaultFps={2} />}
 
             {/* ── 浏览器截图 ── */}
             {screen.type === 'browser' && (
@@ -300,7 +329,9 @@ const MonitorRoomPage: FC = () => {
               <TerminalView>
                 <TermHeader>$ {screen.command}</TermHeader>
                 {screen.output.map((line, i) => (
-                  <TermLine key={i} $stderr={line.stream === 'stderr'}>{line.text}</TermLine>
+                  <TermLine key={i} $stderr={line.stream === 'stderr'}>
+                    {line.text}
+                  </TermLine>
                 ))}
                 <TermCursor />
                 <div ref={termEndRef} />
@@ -323,14 +354,16 @@ const MonitorRoomPage: FC = () => {
                   <SkillName style={{ color: 'var(--color-text-3)', fontSize: 11 }}>加载中...</SkillName>
                 ) : skills.length === 0 ? (
                   <SkillName style={{ color: 'var(--color-text-3)', fontSize: 11 }}>暂无关联 Skills</SkillName>
-                ) : skills.map((sk) => (
-                  <SkillCard key={sk.name} $status={sk.status}>
-                    <SkillName>{sk.name}</SkillName>
-                    <SkillStatus $status={sk.status}>
-                      {sk.status === 'active' ? '活跃' : sk.status === 'error' ? '错误' : '待命中'}
-                    </SkillStatus>
-                  </SkillCard>
-                ))}
+                ) : (
+                  skills.map((sk) => (
+                    <SkillCard key={sk.name} $status={sk.status}>
+                      <SkillName>{sk.name}</SkillName>
+                      <SkillStatus $status={sk.status}>
+                        {sk.status === 'active' ? '活跃' : sk.status === 'error' ? '错误' : '待命中'}
+                      </SkillStatus>
+                    </SkillCard>
+                  ))
+                )}
               </SkillGrid>
             </SectionBlock>
 
@@ -343,14 +376,16 @@ const MonitorRoomPage: FC = () => {
               <FileGrid>
                 {relatedFiles.length === 0 ? (
                   <FileName style={{ color: 'var(--color-text-3)', fontSize: 11 }}>暂无关联文件</FileName>
-                ) : relatedFiles.map((f) => (
-                  <FileCell key={f.name}>
-                    <FileIcon $type={f.type}>
-                      {f.type === 'image' ? '🖼' : f.type === 'document' ? '📄' : '📝'}
-                    </FileIcon>
-                    <FileName>{f.name}</FileName>
-                  </FileCell>
-                ))}
+                ) : (
+                  relatedFiles.map((f) => (
+                    <FileCell key={f.name}>
+                      <FileIcon $type={f.type}>
+                        {f.type === 'image' ? '🖼' : f.type === 'document' ? '📄' : '📝'}
+                      </FileIcon>
+                      <FileName>{f.name}</FileName>
+                    </FileCell>
+                  ))
+                )}
               </FileGrid>
             </SectionBlock>
 
@@ -401,9 +436,7 @@ const MonitorRoomPage: FC = () => {
             </LogHeader>
 
             <LogList>
-              {logs.length === 0 && (
-                <LogEnd>暂无操作记录</LogEnd>
-              )}
+              {logs.length === 0 && <LogEnd>暂无操作记录</LogEnd>}
               {logs.map((log) => (
                 <LogEntry key={log.id} $status={log.status}>
                   <LogTime>{log.time}</LogTime>
@@ -413,7 +446,12 @@ const MonitorRoomPage: FC = () => {
                       {log.status === 'ok' ? '通过' : log.status === 'blocked' ? '阻止' : '已回溯'}
                     </LogStatusBadge>
                     {log.status === 'ok' && (
-                      <EntryRetroBtn title="回溯此操作" onClick={() => handleRetroOne(log.id)}>
+                      <EntryRetroBtn
+                        title={
+                          (log as any).retroData?.vaultEntryId ? '回溯此操作（可恢复文件）' : '回溯此操作（仅标记）'
+                        }
+                        onClick={() => handleRetroOne(log.id)}
+                        $hasBackup={!!(log as any).retroData?.vaultEntryId}>
                         <RetroIcon viewBox="0 0 24 24" width="11" height="11">
                           <path d="M3 12a9 9 0 1 0 9-9" strokeWidth="2" fill="none" />
                           <polyline points="3 3 3 9 9 9" strokeWidth="2" fill="none" />
@@ -739,7 +777,11 @@ const SkillName = styled.span`
 const SkillStatus = styled.span<{ $status: string }>`
   font-size: 10px;
   color: ${(p) =>
-    p.$status === 'active' ? 'var(--color-primary, #338cff)' : p.$status === 'error' ? 'var(--color-error, #ff4d4f)' : 'var(--color-text-3, #8892b0)'};
+    p.$status === 'active'
+      ? 'var(--color-primary, #338cff)'
+      : p.$status === 'error'
+        ? 'var(--color-error, #ff4d4f)'
+        : 'var(--color-text-3, #8892b0)'};
 `
 
 // ─── 文件网格 ─────────────────────────────────────────
@@ -905,8 +947,7 @@ const LogEntry = styled.div<{ $status: 'ok' | 'blocked' | 'retro' }>`
   padding: 6px 12px;
   font-size: 11px;
   font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
-  background: ${(p) =>
-    p.$status === 'retro' ? 'rgba(250,173,20,0.04)' : 'transparent'};
+  background: ${(p) => (p.$status === 'retro' ? 'rgba(250,173,20,0.04)' : 'transparent')};
 
   &:hover {
     background: rgba(255,255,255,0.03);
@@ -930,7 +971,7 @@ const LogAction = styled.span`
   color: var(--color-text, #e8ecf4);
 `
 
-const EntryRetroBtn = styled.button`
+const EntryRetroBtn = styled.button<{ $hasBackup?: boolean }>`
   display: flex;
   align-items: center;
   justify-content: center;
@@ -938,10 +979,10 @@ const EntryRetroBtn = styled.button`
   height: 22px;
   border-radius: 4px;
   border: none;
-  background: transparent;
-  color: var(--color-text-3, #8892b0);
+  background: ${(p) => (p.$hasBackup ? 'rgba(82,196,26,0.12)' : 'transparent')};
+  color: ${(p) => (p.$hasBackup ? '#52c41a' : 'var(--color-text-3, #8892b0)')};
   cursor: pointer;
-  opacity: 0;
+  opacity: ${(p) => (p.$hasBackup ? '0.8' : '0')};
   transition: opacity 0.15s;
   stroke: currentColor;
   fill: none;
@@ -978,8 +1019,7 @@ const LogStatusBadge = styled.span<{ $status: 'ok' | 'blocked' | 'retro' }>`
       : p.$status === 'blocked'
         ? 'rgba(255,77,79,0.12)'
         : 'rgba(250,173,20,0.15)'};
-  color: ${(p) =>
-    p.$status === 'ok' ? '#52c41a' : p.$status === 'blocked' ? '#ff4d4f' : '#faad14'};
+  color: ${(p) => (p.$status === 'ok' ? '#52c41a' : p.$status === 'blocked' ? '#ff4d4f' : '#faad14')};
 `
 
 // ─── 捕获状态栏 ────────────────────────────────────

@@ -1,9 +1,9 @@
 import { loggerService } from '@logger'
+import MonitorService from '@renderer/services/MonitorService'
 import store from '@renderer/store'
 import type { MCPCallToolResponse, MCPTool, MCPToolResponse } from '@renderer/types'
 import { FILE_TYPE } from '@renderer/types'
 import { callMCPTool, getMcpServerByTool, isToolAutoApproved } from '@renderer/utils/mcp-tools'
-import MonitorService from '@renderer/services/MonitorService'
 import {
   confirmSameNameTools,
   requestToolConfirmation,
@@ -47,7 +47,7 @@ const MIME_DESC_MAP: Record<string, string> = {
   'text/csv': 'CSV 文件',
   'text/plain': '文本文件',
   'text/html': 'HTML 文件',
-  'text/markdown': 'Markdown 文件',
+  'text/markdown': 'Markdown 文件'
 }
 
 function getMimeDescription(mimeType: string): string {
@@ -67,7 +67,7 @@ const MIME_EXT_MAP: Record<string, string> = {
   'text/csv': '.csv',
   'text/plain': '.txt',
   'text/html': '.html',
-  'text/markdown': '.md',
+  'text/markdown': '.md'
 }
 
 function mimeToExt(mimeType: string): string {
@@ -155,25 +155,22 @@ export function convertMcpToolsToAiSdkTools(mcpTools: MCPTool[], allowedTools?: 
         // 全局自动模式已开启 → 无需额外解析，直接执行
         if (!isAutoApproveEnabled) {
           // For hub invoke/exec, resolve the underlying tool and check its server's auto-approve config
-          if (
-            mcpTool.serverId === 'hub' &&
-            (mcpTool.name === 'invoke' || mcpTool.name === 'exec')
-          ) {
-          const underlyingToolName = (params as Record<string, unknown>)?.name as string | undefined
-          if (underlyingToolName) {
-            try {
-              const resolved = await window.api.mcp.resolveHubTool(underlyingToolName)
-              if (resolved) {
-                const underlyingServer = store.getState().mcp.servers.find((s) => s.id === resolved.serverId)
-                if (underlyingServer) {
-                  isAutoApproveEnabled = !underlyingServer.disabledAutoApproveTools?.includes(resolved.toolName)
+          if (mcpTool.serverId === 'hub' && (mcpTool.name === 'invoke' || mcpTool.name === 'exec')) {
+            const underlyingToolName = (params as Record<string, unknown>)?.name as string | undefined
+            if (underlyingToolName) {
+              try {
+                const resolved = await window.api.mcp.resolveHubTool(underlyingToolName)
+                if (resolved) {
+                  const underlyingServer = store.getState().mcp.servers.find((s) => s.id === resolved.serverId)
+                  if (underlyingServer) {
+                    isAutoApproveEnabled = !underlyingServer.disabledAutoApproveTools?.includes(resolved.toolName)
+                  }
                 }
+              } catch (err) {
+                logger.warn('Failed to resolve hub tool for auto-approve check', err as Error)
               }
-            } catch (err) {
-              logger.warn('Failed to resolve hub tool for auto-approve check', err as Error)
             }
           }
-        }
         }
 
         let confirmed = true
@@ -218,6 +215,30 @@ export function convertMcpToolsToAiSdkTools(mcpTools: MCPTool[], allowedTools?: 
         // 用户确认或自动批准，执行工具
         logger.debug(`Executing tool: ${mcpTool.name}`)
 
+        // 向 MonitorService 注册当前 toolCallId（供停止按钮中止）
+        try {
+          MonitorService.getInstance().setCurrentToolCallId(toolCallId)
+        } catch {
+          /* ok */
+        }
+
+        // ── 回溯备份：执行前检测破坏性操作，备份原文件 ──
+        let vaultEntryId: string | null = null
+        try {
+          const fp = (params as any)?.file_path || (params as any)?.path || ''
+
+          if (fp) {
+            // MCP filesystem 工具：write（覆写）/ delete / edit 等
+            const content = await (window as any).api?.file?.readExternal(fp).catch(() => null)
+            if (content !== null && typeof content === 'string' && content.length > 0) {
+              vaultEntryId = await (window as any).api?.undoVault?.backupContent(fp, content, mcpTool.name)
+            }
+          }
+          // 终端命令的 vault 标记在 result 中，执行后解析
+        } catch {
+          /* 回溯备份失败不影响主流程 */
+        }
+
         // 创建适配的 MCPToolResponse 对象
         const toolResponse: MCPToolResponse = {
           id: toolCallId,
@@ -230,9 +251,8 @@ export function convertMcpToolsToAiSdkTools(mcpTools: MCPTool[], allowedTools?: 
         const result = await callMCPTool(toolResponse)
 
         // 返回结果，AI SDK 会处理序列化
-        if (result.isError) {
-          return Promise.reject(result)
-        }
+        // 注意：不要对 isError 结果使用 Promise.reject，否则 AI SDK 可能终止流
+        // 而不是将错误信息传给模型继续生成回复
 
         // 保存截图图片 + 非图片文件：同时存入文件库（如已设置）和内部存储
         if (result?.content) {
@@ -290,7 +310,11 @@ export function convertMcpToolsToAiSdkTools(mcpTools: MCPTool[], allowedTools?: 
                       })
                       // 清理临时文件
                       if (api.deleteExternalFile) {
-                        try { await api.deleteExternalFile(tempPath) } catch { /* ok */ }
+                        try {
+                          await api.deleteExternalFile(tempPath)
+                        } catch {
+                          /* ok */
+                        }
                       }
                       if (savedFile) {
                         savedFileCount++
@@ -301,7 +325,9 @@ export function convertMcpToolsToAiSdkTools(mcpTools: MCPTool[], allowedTools?: 
                       }
                     }
                   }
-                } catch { /* 托管存储保存失败不影响主流程 */ }
+                } catch {
+                  /* 托管存储保存失败不影响主流程 */
+                }
               }
 
               // 2. 同时保存到文件库目录（如已配置）
@@ -317,8 +343,12 @@ export function convertMcpToolsToAiSdkTools(mcpTools: MCPTool[], allowedTools?: 
                   await (window as any).api?.file?.mkdir(dir).catch(() => {})
                   await (window as any).api?.file?.write(`${dir}/${name}`, binary)
                 }
-              } catch { /* 文件库保存失败不影响主流程 */ }
-            } catch { /* skip */ }
+              } catch {
+                /* 文件库保存失败不影响主流程 */
+              }
+            } catch {
+              /* skip */
+            }
           }
           const totalSaved = savedImageCount + savedFileCount
           if (totalSaved > 0) {
@@ -326,6 +356,19 @@ export function convertMcpToolsToAiSdkTools(mcpTools: MCPTool[], allowedTools?: 
             if (savedImageCount > 0) parts.push(`${savedImageCount} 张截图`)
             if (savedFileCount > 0) parts.push(`${savedFileCount} 个文件`)
             window.toast?.success?.(`已保存 ${parts.join('，')} 到文件库`)
+          }
+        }
+
+        // ── 解析终端命令结果中的 vaultEntryId 标记 ──
+        if (!vaultEntryId) {
+          try {
+            const rc = (result as any)?.content as any[] | undefined
+            if (Array.isArray(rc)) {
+              const marker = rc.find((c: any) => c.type === 'resource' && c.resource?.text?.startsWith('__vault__:'))
+              if (marker) vaultEntryId = marker.resource.text.replace('__vault__:', '')
+            }
+          } catch {
+            /* ok */
           }
         }
 
@@ -344,7 +387,10 @@ export function convertMcpToolsToAiSdkTools(mcpTools: MCPTool[], allowedTools?: 
             desc = `终端命令: ${cmd.slice(0, 80)}`
             svc.startTerminalSession(cmd.slice(0, 200))
             if (Array.isArray(resultContent)) {
-              const text = resultContent.filter((c: any) => c.type === 'text').map((c: any) => c.text).join('\n')
+              const text = resultContent
+                .filter((c: any) => c.type === 'text')
+                .map((c: any) => c.text)
+                .join('\n')
               const lines = text.split('\n').filter(Boolean).slice(0, 80)
               for (const line of lines) {
                 svc.appendTerminalLine(line, /error|error/i.test(line) ? 'stderr' : 'stdout')
@@ -363,10 +409,18 @@ export function convertMcpToolsToAiSdkTools(mcpTools: MCPTool[], allowedTools?: 
             if (fp) desc = `操作 ${fp}`
           }
 
-          svc.addLog(desc.slice(0, 120), isBlocked ? 'blocked' : 'ok', { source: mcpTool.serverName })
-        } catch { /* 监控日志不影响主流程 */ }
+          svc.addLog(desc.slice(0, 120), isBlocked ? 'blocked' : 'ok', {
+            source: mcpTool.serverName,
+            retroData: vaultEntryId ? { vaultEntryId } : undefined
+          })
+        } catch {
+          /* 监控日志不影响主流程 */
+        }
 
-        // 返回工具执行结果
+        // 返回工具执行结果（含 isError 标识，AI SDK 会传给模型继续生成回复）
+        if (result.isError) {
+          logger.warn(`[ToolExecute] Tool ${mcpTool.name} returned error, passing to model`)
+        }
         return result
       },
       // 将多模态结果 (image/audio/resource blob) 转为文本摘要，避免 base64 超出消息大小限制。

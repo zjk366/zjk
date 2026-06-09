@@ -4,15 +4,62 @@
  * 在本地终端中执行命令，返回 stdout/stderr。
  * 危险命令会触发用户确认弹窗。
  */
-import { dialog, shell } from 'electron'
 import { spawn } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+
+import { undoVaultService } from '@main/services/UndoVaultService'
+import { windowService } from '@main/services/WindowService'
+import { dialog, shell } from 'electron'
+import iconv from 'iconv-lite'
 import * as z from 'zod'
 
-import { windowService } from '@main/services/WindowService'
-import { checkProtectedFileOperation, DEFAULT_TIMEOUT_MS, getCommandSummary, isDangerousCommand, logger, MAX_OUTPUT_LENGTH } from '../types'
+import {
+  checkProtectedFileOperation,
+  DEFAULT_TIMEOUT_MS,
+  extractFilePathsFromCommand,
+  getCommandSummary,
+  isDangerousCommand,
+  isDestructiveCommand,
+  logger,
+  MAX_OUTPUT_LENGTH
+} from '../types'
+
+/**
+ * 检测 Windows 系统活动代码页，用于正确解码中文输出
+ */
+let _activeEncoding: string | null = null
+function getSystemEncoding(): string {
+  if (_activeEncoding) return _activeEncoding
+  try {
+    const cp = require('child_process').execSync('chcp', { encoding: 'utf-8' }).toString()
+    const match = cp.match(/(\d+)/)
+    if (match) {
+      // Windows 代码页 → iconv-lite 编码名
+      const map: Record<string, string> = {
+        '936': 'cp936', // 简体中文 GBK
+        '950': 'cp950', // 繁体中文 Big5
+        '932': 'cp932', // 日文 Shift_JIS
+        '949': 'cp949', // 韩文
+        '65001': 'utf-8',
+        '437': 'cp437', // 英文 OEM
+        '1252': 'cp1252' // 西欧
+      }
+      _activeEncoding = map[match[1]] || 'utf-8'
+    }
+  } catch {
+    _activeEncoding = 'utf-8'
+  }
+  return _activeEncoding!
+}
+
+/** 使用系统编码解码 Buffer，解决 PowerShell 中文乱码 */
+function decodeBuffer(buf: Buffer): string {
+  const enc = getSystemEncoding()
+  if (enc === 'utf-8') return buf.toString('utf-8')
+  return iconv.decode(buf, enc)
+}
 
 /** 向渲染进程推送终端输出行（实时流） */
 function pushTermLine(command: string, text: string, stream: 'stdout' | 'stderr', sessionId: string): void {
@@ -21,7 +68,9 @@ function pushTermLine(command: string, text: string, stream: 'stdout' | 'stderr'
     if (win && !win.isDestroyed()) {
       win.webContents.send('monitor:terminal-output', { command: command.slice(0, 200), text, stream, sessionId })
     }
-  } catch { /* ok */ }
+  } catch {
+    /* ok */
+  }
 }
 
 /** 从删除命令中提取文件路径 */
@@ -43,7 +92,7 @@ const ExecuteSchema = z.object({
   command: z.string().describe('要执行的命令'),
   cwd: z.string().optional().describe('工作目录（默认当前用户 home）'),
   timeout: z.number().optional().describe('超时时间（毫秒，默认 30000）'),
-  description: z.string().optional().describe('命令说明（用于确认弹窗，可选）'),
+  description: z.string().optional().describe('命令说明（用于确认弹窗，可选）')
 })
 
 export const executeToolDefinition = {
@@ -91,7 +140,7 @@ export async function handleExecuteTool(args: unknown) {
       detail: `命令: ${command}\n\n以下路径受系统保护：\n${pathsStr}\n\n确认后将移入回收站。`,
       buttons: ['取消', '确认删除'],
       defaultId: 0,
-      cancelId: 0,
+      cancelId: 0
     })
     if (result.response !== 1) {
       logger.info('Delete of protected file rejected by user', { command, paths: protectedPaths })
@@ -107,10 +156,12 @@ export async function handleExecuteTool(args: unknown) {
         await shell.trashItem(filePath)
         logger.info('Protected file moved to trash (user confirmed)', { command, path: filePath })
         return {
-          content: [{
-            type: 'text',
-            text: `$ ${command}\n\n文件已安全移入回收站 ✅`
-          }]
+          content: [
+            {
+              type: 'text',
+              text: `$ ${command}\n\n文件已安全移入回收站 ✅`
+            }
+          ]
         }
       }
     } catch (e) {
@@ -132,7 +183,7 @@ export async function handleExecuteTool(args: unknown) {
       detail: `命令: ${command}\n\n此操作可能对系统产生影响，请确认是否允许。`,
       buttons: ['拒绝执行', '允许执行'],
       defaultId: 0,
-      cancelId: 0,
+      cancelId: 0
     })
     if (result.response !== 1) {
       logger.info('Dangerous command rejected by user', { command })
@@ -154,11 +205,13 @@ export async function handleExecuteTool(args: unknown) {
       detail: `以下路径受系统保护，禁止 AI 修改：\n${pathsStr}\n\n命令: ${command}`,
       buttons: ['我知道了，取消执行'],
       defaultId: 0,
-      cancelId: 0,
+      cancelId: 0
     })
     logger.info('Protected file operation rejected', { command, paths: protectedFiles })
     return {
-      content: [{ type: 'text', text: `错误：无法操作受系统保护的路径：\n${pathsStr}\n\n此路径受系统保护，禁止 AI 修改。` }],
+      content: [
+        { type: 'text', text: `错误：无法操作受系统保护的路径：\n${pathsStr}\n\n此路径受系统保护，禁止 AI 修改。` }
+      ],
       isError: true
     }
   }
@@ -171,6 +224,31 @@ export async function handleExecuteTool(args: unknown) {
       content: [{ type: 'text', text: `工作目录不存在: ${workDir}` }],
       isError: true
     }
+  }
+
+  // ── UndoVault 回溯备份：检测破坏性命令，执行前备份原文件 ──
+  let vaultEntryId: string | null = null
+  try {
+    if (isDestructiveCommand(command)) {
+      const filePaths = extractFilePathsFromCommand(command)
+      if (filePaths.length > 0) {
+        // 过滤掉不存在的路径
+        const existingPaths: string[] = []
+        for (const fp of filePaths) {
+          try {
+            await fs.access(fp)
+            existingPaths.push(fp)
+          } catch {
+            /* 路径不存在则跳过 */
+          }
+        }
+        if (existingPaths.length > 0) {
+          vaultEntryId = await undoVaultService.backup(existingPaths, getCommandSummary(command))
+        }
+      }
+    }
+  } catch (err) {
+    logger.warn('UndoVault backup failed (non-blocking):', err as Error)
   }
 
   // ── 执行命令（实时流推送） ───────────────────────────
@@ -188,7 +266,7 @@ export async function handleExecuteTool(args: unknown) {
       process.platform === 'win32' ? ['/c', command] : ['-c', command],
       {
         cwd: workDir,
-        windowsHide: true,
+        windowsHide: true
       }
     )
 
@@ -202,7 +280,7 @@ export async function handleExecuteTool(args: unknown) {
     }, timeoutMs)
 
     child.stdout?.on('data', (data: Buffer) => {
-      const chunk = data.toString()
+      const chunk = decodeBuffer(data)
       stdout += chunk
       // 逐行推送实时输出
       const lines = chunk.split('\n').filter(Boolean)
@@ -216,7 +294,7 @@ export async function handleExecuteTool(args: unknown) {
     })
 
     child.stderr?.on('data', (data: Buffer) => {
-      const chunk = data.toString()
+      const chunk = decodeBuffer(data)
       stderr += chunk
       const lines = chunk.split('\n').filter(Boolean)
       for (const line of lines) {
@@ -251,9 +329,13 @@ export async function handleExecuteTool(args: unknown) {
 
       logger.info(`Command completed (exit=${code}, stdout=${stdout.length}bytes, stderr=${stderr.length}bytes)`)
 
-      resolve({
-        content: [{ type: 'text', text: output.join('\n') }]
-      })
+      const resultText = output.join('\n')
+      const content: any[] = [{ type: 'text', text: resultText }]
+      // 携带 vaultEntryId 供监控室回溯使用
+      if (vaultEntryId) {
+        content.push({ type: 'resource', resource: { text: `__vault__:${vaultEntryId}` } })
+      }
+      resolve({ content })
     })
 
     child.on('error', (err) => {
