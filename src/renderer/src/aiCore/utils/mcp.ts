@@ -276,17 +276,14 @@ export function convertMcpToolsToAiSdkTools(mcpTools: MCPTool[], allowedTools?: 
               const binary = Uint8Array.from(atob(raw), (c) => c.charCodeAt(0))
               const ext = mimeToExt(item.mimeType).replace('.', '') || (item.isImage ? 'png' : 'bin')
 
-              // 1. 保存到内部存储（用于聊天显示）
+              // 1. 图片通过 IMAGE_COMPLETE chunk 显示和保存（在 onImageGenerated 中处理）
+              // 这里不再重复保存，避免文件库出现重复文件
               if (item.isImage) {
-                const meta: any = await window.api.file.savePastedImage(binary, ext)
-                if (meta) {
-                  savedImageCount++
-                  const filePath = meta.path?.replace(/\\/g, '/')
-                  result.content.push({
-                    type: 'text',
-                    text: `\n[Screenshot saved to: ${filePath}]\n`
-                  })
-                }
+                // 仅在 result 中添加文本提示，不重复保存文件
+                result.content.push({
+                  type: 'text',
+                  text: '\n[截图已生成，见上方图片]\n'
+                })
               } else {
                 // 非图片文件保存到托管存储
                 try {

@@ -228,7 +228,7 @@ export async function buildStreamTextParams(
 
   let systemPrompt = assistant.prompt ? await replacePromptVariables(assistant.prompt, model.name) : ''
 
-  if (getEffectiveMcpMode(assistant) === 'auto') {
+  if (getEffectiveMcpMode(assistant) !== 'disabled') {
     const autoModePrompt = getHubModeSystemPrompt()
     if (autoModePrompt) {
       systemPrompt = systemPrompt ? `${systemPrompt}\n\n${autoModePrompt}` : autoModePrompt

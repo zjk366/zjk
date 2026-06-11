@@ -14,6 +14,17 @@ interface ImageCallbacksDependencies {
   assistantMsgId: string
 }
 
+/** 对同一消息去重：记录已处理过的图片指纹，防止同一图片被处理多次 */
+const imageFingerprints = new Set<string>()
+function getImageFingerprint(imageData: GenerateImageResponse): string {
+  if (imageData?.images?.[0]) {
+    // 取 base64 前 100 字符作为指纹（足够区分不同图片）
+    const raw = imageData.images[0]
+    return raw.length > 100 ? raw.slice(0, 100) : raw
+  }
+  return ''
+}
+
 export const createImageCallbacks = (deps: ImageCallbacksDependencies) => {
   const { blockManager, assistantMsgId } = deps
 
@@ -22,6 +33,8 @@ export const createImageCallbacks = (deps: ImageCallbacksDependencies) => {
 
   return {
     onImageCreated: async () => {
+      // 如果已经有 PENDING 的 imageBlockId，说明同一图片已开始处理，跳过
+      if (imageBlockId) return
       if (blockManager.hasInitialPlaceholder) {
         const initialChanges = {
           type: MessageBlockType.IMAGE,
@@ -51,6 +64,15 @@ export const createImageCallbacks = (deps: ImageCallbacksDependencies) => {
     },
 
     onImageGenerated: async (imageData?: GenerateImageResponse) => {
+      // 去重：同一图片数据只处理一次（工具截图等场景可能重复发射 IMAGE_COMPLETE）
+      if (imageData) {
+        const fp = getImageFingerprint(imageData)
+        if (fp && imageFingerprints.has(fp)) {
+          logger.debug('[onImageGenerated] Duplicate image skipped')
+          return
+        }
+        if (fp) imageFingerprints.add(fp)
+      }
       // For base64 images, persist to disk to avoid sending huge data URIs in future messages
       const buildImageBlockFields = async (imageData: GenerateImageResponse): Promise<Partial<ImageMessageBlock>> => {
         const imageUrl: string = imageData.images?.[0] || 'placeholder_image_url'

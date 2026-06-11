@@ -6,6 +6,7 @@ import type { ImageMessageBlock, Message, MessageBlock } from '@renderer/types/n
 import { MessageBlockStatus, MessageBlockType } from '@renderer/types/newMessage'
 import { isMainTextBlock, isMessageProcessing, isToolBlock, isVideoBlock } from '@renderer/utils/messageUtils/is'
 import { AnimatePresence, motion, type Variants } from 'motion/react'
+import { BeatLoader } from 'react-spinners'
 import React, { useMemo } from 'react'
 import { useSelector } from 'react-redux'
 import styled from 'styled-components'
@@ -160,25 +161,33 @@ const MessageBlockRenderer: React.FC<Props> = ({ blocks, message }) => {
               </AnimatedBlockWrapper>
             )
           } else if (block[0].type === MessageBlockType.TOOL) {
-            // 对于连续的TOOL，使用分组显示
+            // 执行中的工具调用：隐藏详情，只显示加载动画
+            if (message.status.includes('ing')) {
+              return (
+                <AnimatedBlockWrapper key={groupKey} enableAnimation={true}>
+                  <ToolExecutingIndicator>
+                    <BeatLoader color="var(--color-text-3)" size={6} speedMultiplier={0.8} />
+                  </ToolExecutingIndicator>
+                </AnimatedBlockWrapper>
+              )
+            }
+            // 完成后：显示工具调用结果
             if (block.length === 1) {
-              // 单个工具调用，直接渲染
               if (!isToolBlock(block[0])) {
                 logger.warn('Expected tool block but got different type', block[0])
                 return null
               }
               return (
-                <AnimatedBlockWrapper key={groupKey} enableAnimation={message.status.includes('ing')}>
+                <AnimatedBlockWrapper key={groupKey} enableAnimation={false}>
                   <ToolBlock key={block[0].id} block={block[0]} />
                 </AnimatedBlockWrapper>
               )
             }
             // 多个工具调用，使用分组组件
             const toolBlocks = block.filter(isToolBlock)
-            // Use first block ID as stable key to prevent remounting when new blocks are added
             const stableGroupKey = `tool-group-${toolBlocks[0].id}`
             return (
-              <AnimatedBlockWrapper key={stableGroupKey} enableAnimation={message.status.includes('ing')}>
+              <AnimatedBlockWrapper key={stableGroupKey} enableAnimation={false}>
                 <ToolBlockGroup blocks={toolBlocks} />
               </AnimatedBlockWrapper>
             )
@@ -277,4 +286,11 @@ const ImageBlockGroup = styled.div<{ count: number }>`
   flex-wrap: wrap;
   gap: 10px;
   max-width: 100%;
+`
+
+const ToolExecutingIndicator = styled.div`
+  display: flex;
+  align-items: center;
+  height: 24px;
+  padding: 4px 0;
 `

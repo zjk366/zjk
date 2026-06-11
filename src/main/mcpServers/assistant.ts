@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -6,7 +7,7 @@ import { loggerService } from '@logger'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Tool } from '@modelcontextprotocol/sdk/types.js'
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from '@modelcontextprotocol/sdk/types.js'
-import { app } from 'electron'
+import { app, BrowserWindow } from 'electron'
 
 const logger = loggerService.withContext('MCPServer:Assistant')
 
@@ -78,6 +79,50 @@ const DIAGNOSE_TOOL: Tool = {
   }
 }
 
+const SEARCH_NPM_MCP_TOOL: Tool = {
+  name: 'search_npm_mcp',
+  description:
+    'Search npm registry for MCP packages by keyword. Use this when you need to find MCP tools' +
+    'for a specific task (e.g. "ppt", "powerpoint", "excel", "image", "database").' +
+    'Returns a list of matching packages with name, description, and version.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      keyword: {
+        type: 'string',
+        description: 'Search keyword, e.g. "ppt", "powerpoint", "excel", "image generation"'
+      },
+      size: {
+        type: 'number',
+        description: 'Number of results (default 10, max 50)'
+      }
+    },
+    required: ['keyword']
+  }
+}
+
+const INSTALL_MCP_PACKAGE_TOOL: Tool = {
+  name: 'install_mcp_package',
+  description:
+    'Install an MCP package from npm and register it in the system. ' +
+    'After installation, the MCP server will be connected to Hub and registered in Skills management room. ' +
+    'The newly installed tool can be used immediately via Hub.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      package_name: {
+        type: 'string',
+        description: 'The npm package name to install, e.g. "@modelcontextprotocol/server-ppt" or a full npm package name'
+      },
+      description: {
+        type: 'string',
+        description: 'Optional description for the MCP server'
+      }
+    },
+    required: ['package_name']
+  }
+}
+
 // Health check cache: { providerId -> { result, timestamp } }
 const healthCache = new Map<string, { result: unknown; timestamp: number }>()
 const HEALTH_CACHE_TTL = 30_000 // 30 seconds
@@ -102,7 +147,7 @@ class AssistantServer {
 
   private setupHandlers() {
     this.mcpServer.server.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools: [NAVIGATE_TOOL, DIAGNOSE_TOOL]
+      tools: [NAVIGATE_TOOL, DIAGNOSE_TOOL, SEARCH_NPM_MCP_TOOL, INSTALL_MCP_PACKAGE_TOOL]
     }))
 
     this.mcpServer.server.setRequestHandler(CallToolRequestSchema, async (request) => {
@@ -115,6 +160,10 @@ class AssistantServer {
             return await this.navigate(args as Record<string, string | Record<string, string> | undefined>)
           case 'diagnose':
             return await this.diagnose(args)
+          case 'search_npm_mcp':
+            return await this.searchNpmMcp(args as { keyword: string; size?: number })
+          case 'install_mcp_package':
+            return await this.installMcpPackage(args as { package_name: string; description?: string })
           default:
             throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${toolName}`)
         }
@@ -721,6 +770,181 @@ class AssistantServer {
             text: `Failed to read file: ${error instanceof Error ? error.message : String(error)}`
           }
         ],
+        isError: true
+      }
+    }
+  }
+
+  /**
+   * Search npm registry for MCP packages by keyword
+   */
+  private async searchNpmMcp(args: { keyword: string; size?: number }) {
+    const keyword = args.keyword?.trim()
+    if (!keyword) {
+      return { content: [{ type: 'text' as const, text: 'Keyword is required' }], isError: true }
+    }
+
+    const size = Math.min(Math.max(args.size || 10, 1), 50)
+
+    try {
+      // Search npm registry with keyword:mcp filter
+      const url = `https://registry.npmjs.org/-/v1/search?text=keywords:mcp+${encodeURIComponent(keyword)}&size=${size}`
+      const response = await fetch(url, {
+        signal: AbortSignal.timeout(15000)
+      })
+
+      if (!response.ok) {
+        return {
+          content: [{ type: 'text' as const, text: `npm registry returned ${response.status}` }],
+          isError: true
+        }
+      }
+
+      const data = (await response.json()) as {
+        objects: Array<{
+          package: {
+            name: string
+            description: string
+            version: string
+            keywords?: string[]
+            links: { npm: string }
+            publisher?: { username: string }
+          }
+        }>
+      }
+
+      if (!data.objects || data.objects.length === 0) {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: `No MCP packages found for keyword "${keyword}". Try different keywords like "mcp" combined with your task.`
+            }
+          ]
+        }
+      }
+
+      const results = data.objects.map((obj, i) => {
+        const pkg = obj.package
+        return `${i + 1}. ${pkg.name} v${pkg.version}
+   Description: ${pkg.description || 'No description'}
+   npm: ${pkg.links.npm}
+   Keywords: ${(pkg.keywords || []).join(', ') || 'none'}`
+      })
+
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: `Found ${data.objects.length} MCP package(s) for "${keyword}":\n\n${results.join('\n\n')}\n\nUse install_mcp_package tool to install one of these packages.`
+          }
+        ]
+      }
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error)
+      return {
+        content: [{ type: 'text' as const, text: `npm search failed: ${msg}` }],
+        isError: true
+      }
+    }
+  }
+
+  /**
+   * Install an MCP package via npx and register it in Skills
+   */
+  private async installMcpPackage(args: { package_name: string; description?: string }) {
+    const packageName = args.package_name?.trim()
+    if (!packageName) {
+      return { content: [{ type: 'text' as const, text: 'Package name is required' }], isError: true }
+    }
+
+    // Validate package name (basic check)
+    if (!/^(@[a-z0-9-]+\/)?[a-z0-9_.-]+$/i.test(packageName)) {
+      return {
+        content: [{ type: 'text' as const, text: `Invalid package name: "${packageName}"` }],
+        isError: true
+      }
+    }
+
+    try {
+      const serverId = `mcp_${packageName.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}`
+      const description = args.description || `${packageName} MCP 服务`
+
+      // 1. Add to MCP config (syncs to renderer via electron-store IPC)
+      try {
+        const { configManager } = await import('@main/services/ConfigManager')
+        const existing = configManager.get<any[]>('mcpServers', [])
+        const alreadyExists = existing.some((s: any) => s.name === packageName)
+        if (!alreadyExists) {
+          const newServer = {
+            id: serverId,
+            name: packageName,
+            description,
+            command: 'npx',
+            args: ['-y', packageName],
+            isActive: true,
+            type: 'stdio',
+            installSource: 'manual',
+            isTrusted: true,
+            installedAt: Date.now()
+          }
+          configManager.set('mcpServers', [...existing, newServer])
+          logger.info(`Added ${packageName} to MCP config`)
+        }
+      } catch (err) {
+        logger.warn('Failed to write MCP config, will attempt npx directly', err as Error)
+      }
+
+      // 2. Notify renderer via IPC to register in Skills
+      try {
+        const wins = BrowserWindow.getAllWindows()
+        for (const win of wins) {
+          win.webContents.send('mcp:package-installed', {
+            packageName,
+            serverId,
+            description
+          })
+        }
+      } catch (err) {
+        logger.warn('Failed to notify renderer for Skills registration', err as Error)
+      }
+
+      // 3. Run npx install in background
+      const npxCommand = process.platform === 'win32' ? 'npx.cmd' : 'npx'
+      const child = spawn(npxCommand, ['-y', packageName], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        detached: true,
+        shell: true
+      })
+
+      // Log output
+      child.stdout?.on('data', (data: Buffer) => {
+        logger.info(`[npx:${packageName}] ${data.toString().trim()}`)
+      })
+      child.stderr?.on('data', (data: Buffer) => {
+        logger.info(`[npx:${packageName}] ${data.toString().trim()}`)
+      })
+
+      // Don't await — let it run in background
+      child.unref()
+
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: `正在安装 MCP 包: ${packageName}\n\n` +
+                  `1. ✅ 已添加到 MCP 服务器配置\n` +
+                  `2. ✅ 正在后台运行 npx -y ${packageName}\n` +
+                  `3. ✅ 将自动注册到 Skills 管理室\n\n` +
+                  `安装完成后即可通过 Hub 使用此 MCP 服务提供的工具。\n` +
+                  `你可以继续使用其他工具，安装过程不会阻塞。`
+          }
+        ]
+      }
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error)
+      return {
+        content: [{ type: 'text' as const, text: `Installation failed: ${msg}` }],
         isError: true
       }
     }

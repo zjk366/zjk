@@ -181,8 +181,8 @@ class MemoryBankService {
       await db.table('conversation_logs').add({
         id: `log_${lastAssistant.id?.slice(0, 8) || ''}_${Date.now()}`,
         topicId: data.topicId,
-        userContent: userContent.slice(0, 1000),
-        assistantContent: assistantContent.slice(0, 1000),
+        userContent: userContent.slice(0, 10000),
+        assistantContent: assistantContent.slice(0, 10000),
         createdAt: new Date().toISOString(),
       } as ConversationLog)
 
@@ -215,16 +215,21 @@ class MemoryBankService {
   private async updateDraft(): Promise<void> {
     try {
       const allLogs: ConversationLog[] = await db.table('conversation_logs').toArray()
-      if (allLogs.length === 0 || allLogs.length <= this.lastDraftLogCount) return
+      if (allLogs.length === 0) return
+      // 如果有新日志，允许重新生成摘要（即使上次失败也能重试）
+      if (allLogs.length <= this.lastDraftLogCount) return
 
-      this.lastDraftLogCount = allLogs.length
       const conversationText = allLogs.map((l, i) =>
         `[对话 ${i + 1}]\n[用户]: ${l.userContent}\n[助手]: ${l.assistantContent}`
       ).join('\n\n')
 
       const assistant = store.getState().assistants.defaultAssistant
       const model = assistant?.model || getDefaultModel()
-      if (!model) return await this.saveDraftLocally(conversationText)
+      if (!model) {
+        await this.saveDraftLocally(conversationText)
+        this.lastDraftLogCount = allLogs.length
+        return
+      }
 
       const summary = await fetchGenerate({
         prompt: `你是一个对话记忆总结助手。请对以下对话进行精炼总结。
@@ -234,24 +239,29 @@ class MemoryBankService {
 2. 【技术要点】
 3. 【结论/决策】
 
-要求：总字数控制在 200 字以内，语言简洁。保留可操作的细节。
+要求：总字数控制在 800 字以内，语言简洁。保留可操作的细节。
 
 这是对话的实时总结，后续可能还有更多对话会追加进来，请在总结中注明"截至目前"。`,
         content: conversationText,
         model,
       })
 
-      if (summary) await this.saveDraft(summary, conversationText)
-      else await this.saveDraftLocally(conversationText)
+      if (summary) {
+        await this.saveDraft(summary, conversationText)
+        this.lastDraftLogCount = allLogs.length
+      } else {
+        await this.saveDraftLocally(conversationText)
+        this.lastDraftLogCount = allLogs.length
+      }
     } catch {
-      // 草稿失败不影响主流程
+      // 草稿失败不影响主流程，且 lastDraftLogCount 未更新，下次会重试
     }
   }
 
   /** 无模型时的本地草稿降级 */
   private async saveDraftLocally(fullText: string): Promise<void> {
     const words = fullText.split(/\s+/).slice(-100).join(' ')
-    await this.saveDraft(words.slice(0, 200), fullText)
+    await this.saveDraft(words.slice(0, 800), fullText)
   }
 
   /** 保存/更新草稿记忆（topicId = __draft__ 标记为草稿） */
@@ -417,8 +427,8 @@ class MemoryBankService {
       await db.table('conversation_logs').add({
         id: `log_${lastAssistant.id?.slice(0, 8) || ''}_${Date.now()}`,
         topicId: this.activeTopicId,
-        userContent: userContent.slice(0, 1000),
-        assistantContent: assistantContent.slice(0, 1000),
+        userContent: userContent.slice(0, 10000),
+        assistantContent: assistantContent.slice(0, 10000),
         createdAt: new Date().toISOString(),
       } as ConversationLog)
     } catch { /* 关闭时尽力保存 */ }

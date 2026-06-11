@@ -431,14 +431,21 @@ export class AiSdkToChunkAdapter {
         }
         break
       case 'file':
-        // 文件相关事件，可能是图片生成
-        this.onChunk({
-          type: ChunkType.IMAGE_COMPLETE,
-          image: {
-            type: 'base64',
-            images: [`data:${chunk.file.mediaType};base64,${chunk.file.base64}`]
-          }
-        })
+        // 文件相关事件（来自 AI SDK streamText 的 file 事件）
+        // 注意：工具返回的图片已在 handleToolCallChunk.ts 中处理并发射 IMAGE_COMPLETE，
+        // 这里如果再次发射会导致对话中出现重复图片。
+        // 因此只处理非图片文件，图片由 handleToolCallChunk 负责。
+        if (chunk.file.mediaType?.startsWith('image/')) {
+          logger.debug('[file] Skipping image file event — already handled by tool call handler')
+        } else {
+          this.onChunk({
+            type: ChunkType.IMAGE_COMPLETE,
+            image: {
+              type: 'base64',
+              images: [`data:${chunk.file.mediaType};base64,${chunk.file.base64}`]
+            }
+          })
+        }
         break
       case 'abort':
         this.onChunk({

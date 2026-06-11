@@ -49,5 +49,5 @@ export const MEMORY_CONFIG = {
   /** 关键词提取最大数量 */
   MAX_KEYWORDS: 10,
   /** 摘要最大长度 */
-  MAX_SUMMARY_LENGTH: 200,
+  MAX_SUMMARY_LENGTH: 800,
 }
