@@ -41,14 +41,27 @@ function getTopicId(messages: Message[]): string {
 
 const logger = loggerService.withContext('ConversationService')
 
-/** 获取最近的记忆作为上下文（直接取最近 N 条，不依赖关键词匹配） */
+/** 获取最近的记忆作为上下文，并更新 lastReferencedAt（用于 TTL 清理） */
 async function getRecentMemoriesContext(maxCount = 5): Promise<string> {
   try {
     const service = MemoryBankService.getInstance()
     const memories = await service.getAllActive()
     if (memories.length === 0) return ''
 
-    const lines = memories.slice(0, maxCount).map((m, i) => `[记忆 ${i + 1}] ${m.summary}`)
+    const now = new Date().toISOString()
+    const toUse = memories.slice(0, maxCount)
+
+    // 更新 lastReferencedAt — 记忆被引用说明用户"提到"了它，重置 TTL
+    for (const m of toUse) {
+      try {
+        const table = (await import('@renderer/databases')).default.table('memories')
+        await table.update(m.id, { lastReferencedAt: now })
+      } catch {
+        /* 更新失败不影响主流程 */
+      }
+    }
+
+    const lines = toUse.map((m, i) => `[记忆 ${i + 1}] ${m.summary}`)
     return `以下是之前的对话记忆，可能对当前对话有帮助：\n${lines.join('\n')}\n\n请参考这些记忆，同时注意记忆可能已不适用于当前场景。`
   } catch {
     return ''
@@ -458,12 +471,11 @@ export class ConversationService {
       })
     }
 
-    // 记忆注入
-    if (modelMessages.length <= 4) {
-      const memoryContext = await getRecentMemoriesContext(5)
-      if (memoryContext) {
-        modelMessages.unshift({ role: 'system', content: memoryContext })
-      }
+    // 记忆注入（无论对话长短，始终注入最近活跃的记忆）
+    // 基于 lastReferencedAt 的 TTL 确保不相关的记忆会自动淘汰
+    const memoryContext = await getRecentMemoriesContext(5)
+    if (memoryContext) {
+      modelMessages.unshift({ role: 'system', content: memoryContext })
     }
 
     return { modelMessages, uiMessages: contextMessages }

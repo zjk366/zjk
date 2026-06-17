@@ -707,7 +707,8 @@ export async function fetchGenerate({
       model.id,
       {
         system: prompt,
-        prompt: content
+        prompt: content,
+        maxOutputTokens: 4096 // 确保有足够空间生成完整摘要
       },
       {
         ...middlewareConfig,

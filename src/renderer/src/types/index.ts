@@ -549,6 +549,7 @@ export type MinAppRegionFilter = 'auto' | MinAppRegion
 export enum ThemeMode {
   light = 'light',
   dark = 'dark',
+  blackhole = 'blackhole',
   system = 'system'
 }
 

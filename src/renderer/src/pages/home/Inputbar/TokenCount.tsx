@@ -67,18 +67,25 @@ const TokenCount: FC<Props> = ({ estimateTokenCount, inputTokenCount, contextCou
 }
 
 const Container = styled.div`
-  font-size: 11px;
-  line-height: 16px;
-  color: var(--color-text-2);
+  font-size: 10px;
+  line-height: 14px;
+  color: var(--color-text-3);
   z-index: 10;
-  padding: 3px 10px;
+  padding: 2px 8px;
   user-select: none;
-  border-radius: 20px;
+  border-radius: 10px;
   display: flex;
   align-items: center;
   cursor: pointer;
+  transition: all 0.2s ease;
+  letter-spacing: 0.2px;
   .icon {
-    margin-right: 3px;
+    margin-right: 2px;
+    opacity: 0.6;
+  }
+  &:hover {
+    color: var(--color-text-2);
+    background: color-mix(in srgb, var(--color-primary) 4%, transparent);
   }
   @media (max-width: 800px) {
     display: none;

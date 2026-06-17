@@ -165,6 +165,7 @@ export const getTitleLabel = (key: string): string => {
 }
 
 const themeModeKeyMap = {
+  blackhole: 'settings.theme.blackhole',
   dark: 'settings.theme.dark',
   light: 'settings.theme.light',
   system: 'settings.theme.system'

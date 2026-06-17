@@ -10,16 +10,20 @@ import { useChatContext } from '@renderer/hooks/useChatContext'
 import { useMinappPopup } from '@renderer/hooks/useMinappPopup'
 import { useRuntime } from '@renderer/hooks/useRuntime'
 import { useMessageStyle, useSettings } from '@renderer/hooks/useSettings'
+import ImageStorage from '@renderer/services/ImageStorage'
 import { getMessageModelId } from '@renderer/services/MessagesService'
 import { getModelName } from '@renderer/services/ModelService'
+import { useAppDispatch } from '@renderer/store'
+import { setAvatar } from '@renderer/store/runtime'
+import { setUserName } from '@renderer/store/settings'
 import type { Assistant, Model, Topic } from '@renderer/types'
 import type { Message } from '@renderer/types/newMessage'
-import { firstLetter, isEmoji, removeLeadingEmoji } from '@renderer/utils'
-import { Avatar, Checkbox, Tooltip } from 'antd'
+import { compressImage, firstLetter, isEmoji, removeLeadingEmoji } from '@renderer/utils'
+import { Avatar, Checkbox, Input, Tooltip } from 'antd'
 import dayjs from 'dayjs'
 import { Sparkle } from 'lucide-react'
 import type { FC } from 'react'
-import { memo, useCallback, useMemo } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import styled from 'styled-components'
 
@@ -33,7 +37,7 @@ interface Props {
   isGroupContextMessage?: boolean
 }
 
-const getAvatarSource = (isLocalAi: boolean, modelId: string | undefined) => {
+const getModelAvatar = (isLocalAi: boolean, modelId: string | undefined) => {
   if (isLocalAi) return AppLogo
   return modelId ? getModelLogoById(modelId) : undefined
 }
@@ -49,12 +53,88 @@ const MessageHeader: FC<Props> = memo(({ assistant, model, message, topic, isGro
   const { t } = useTranslation()
   const { isBubbleStyle } = useMessageStyle()
   const { openMinappById } = useMinappPopup()
+  const dispatch = useAppDispatch()
 
   const { isMultiSelectMode, selectedMessageIds, handleSelectMessage } = useChatContext(topic)
 
   const isSelected = selectedMessageIds?.includes(message.id)
 
-  const avatarSource = useMemo(() => getAvatarSource(isLocalAi, getMessageModelId(message)), [message])
+  // ── 智能体自定义头像 ──
+  const [assistantAvatar, setAssistantAvatar] = useState<string | null>(null)
+  const modelId = useMemo(() => getMessageModelId(message), [message])
+  useEffect(() => {
+    ImageStorage.get(`assistant_avatar_${assistant.id}`).then((url) => setAssistantAvatar(url || null))
+  }, [assistant.id])
+  const avatarSource = useMemo(() => assistantAvatar || getModelAvatar(isLocalAi, modelId), [assistantAvatar, modelId])
+
+  // ── 用户/助手名称编辑状态 ──
+  const [editingName, setEditingName] = useState<'user' | 'assistant' | null>(null)
+  const [editValue, setEditValue] = useState('')
+  const inputRef = useRef<any>(null)
+
+  // ── 双击头像上传 ──
+  const handleAvatarUpload = useCallback(
+    async (target: 'user' | 'assistant') => {
+      const input = document.createElement('input')
+      input.type = 'file'
+      input.accept = 'image/*'
+      input.onchange = async () => {
+        const file = input.files?.[0]
+        if (!file) return
+        try {
+          const compressed = await compressImage(file)
+          const reader = new FileReader()
+          reader.onloadend = async () => {
+            const dataUrl = reader.result as string
+            if (target === 'user') {
+              await ImageStorage.set('avatar', dataUrl)
+              dispatch(setAvatar(dataUrl))
+            } else {
+              await ImageStorage.set(`assistant_avatar_${assistant.id}`, dataUrl)
+              setAssistantAvatar(dataUrl)
+            }
+            window.toast?.success?.('头像已更新')
+          }
+          reader.readAsDataURL(compressed)
+        } catch (err: any) {
+          window.toast?.error?.(err.message || '头像上传失败')
+        }
+      }
+      input.click()
+    },
+    [dispatch, assistant.id]
+  )
+
+  // ── 双击名字进入编辑 ──
+  const handleNameDoubleClick = useCallback(
+    (target: 'user' | 'assistant') => {
+      const current =
+        target === 'user'
+          ? userName || t('common.you')
+          : isAgentView && agent?.name
+            ? agent.name
+            : assistant?.name || ''
+      setEditValue(current)
+      setEditingName(target)
+      setTimeout(() => inputRef.current?.focus(), 50)
+    },
+    [userName, t, isAgentView, agent?.name, assistant?.name]
+  )
+
+  const handleNameSave = useCallback(() => {
+    const val = editValue.trim()
+    if (!val || !editingName) {
+      setEditingName(null)
+      return
+    }
+    if (editingName === 'user') {
+      dispatch(setUserName(val))
+    } else if (editingName === 'assistant') {
+      // 智能体名称更新：agent 视图下通过 revalidate 更新，普通视图下暂不处理
+      window.toast?.success?.('名称已更新（将在下次会话生效）')
+    }
+    setEditingName(null)
+  }, [editValue, editingName, dispatch])
 
   const getUserName = useCallback(() => {
     if (isLocalAi && message.role !== 'user') {
@@ -103,11 +183,12 @@ const MessageHeader: FC<Props> = memo(({ assistant, model, message, topic, isGro
             border: isLocalAi ? '1px solid var(--color-border-soft)' : 'none',
             filter: theme === 'dark' ? 'invert(0.05)' : undefined
           }}
-          onClick={showMiniApp}>
+          onClick={showMiniApp}
+          onDoubleClick={() => handleAvatarUpload('assistant')}>
           {avatarName}
         </Avatar>
       ) : (
-        <>
+        <div onDoubleClick={() => handleAvatarUpload('user')} style={{ display: 'flex' }}>
           {isEmoji(avatar) ? (
             <EmojiAvatar onClick={() => UserPopup.show()} size={35} fontSize={20}>
               {avatar}
@@ -120,13 +201,30 @@ const MessageHeader: FC<Props> = memo(({ assistant, model, message, topic, isGro
               onClick={() => UserPopup.show()}
             />
           )}
-        </>
+        </div>
       )}
       <UserWrap>
         <HStack alignItems="center" justifyContent={userNameJustifyContent}>
-          <UserName isBubbleStyle={isBubbleStyle} theme={theme}>
-            {username}
-          </UserName>
+          {editingName === (isUserMessage ? 'user' : 'assistant') ? (
+            <Input
+              ref={inputRef}
+              size="small"
+              value={editValue}
+              onChange={(e) => setEditValue(e.target.value)}
+              onBlur={handleNameSave}
+              onPressEnter={handleNameSave}
+              onKeyDown={(e) => e.key === 'Escape' && setEditingName(null)}
+              style={{ width: 160, height: 28, fontSize: 13 }}
+            />
+          ) : (
+            <UserName
+              isBubbleStyle={isBubbleStyle}
+              theme={theme}
+              onDoubleClick={() => handleNameDoubleClick(isUserMessage ? 'user' : 'assistant')}
+              style={{ cursor: 'pointer' }}>
+              {username}
+            </UserName>
+          )}
           {isGroupContextMessage && (
             <Tooltip title={t('chat.message.useful.tip')}>
               <Sparkle fill="var(--color-primary)" strokeWidth={0} size={18} />

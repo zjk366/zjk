@@ -1,5 +1,5 @@
-import { lightbulbVariants } from '@renderer/utils/motionVariants'
-import { ChevronRight, Lightbulb } from 'lucide-react'
+import { accretionVariants, lightbulbVariants } from '@renderer/utils/motionVariants'
+import { ChevronRight } from 'lucide-react'
 import { motion } from 'motion/react'
 import React, { useMemo } from 'react'
 import styled from 'styled-components'
@@ -10,6 +10,47 @@ interface Props {
   content: string
   expanded: boolean
 }
+
+/** 黑洞图标 SVG — 暗心 + 吸积盘光环 */
+const BlackHoleIcon = ({ size }: { size: number }) => (
+  <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+    {/* 吸积盘外层光晕 */}
+    <circle cx="16" cy="16" r="15" stroke="var(--color-primary)" strokeWidth="0.5" opacity="0.3" />
+    {/* 吸积盘内环 */}
+    <circle
+      cx="16"
+      cy="16"
+      r="12"
+      stroke="var(--color-primary)"
+      strokeWidth="1.5"
+      opacity="0.6"
+      strokeDasharray="4 3"
+    />
+    {/* 事件视界 */}
+    <circle
+      cx="16"
+      cy="16"
+      r="8"
+      fill="color-mix(in srgb, var(--color-background) 60%, transparent)"
+      stroke="var(--color-primary)"
+      strokeWidth="0.5"
+      opacity="0.8"
+    />
+    {/* 奇点 */}
+    <circle cx="16" cy="16" r="2.5" fill="var(--color-primary)" opacity="1" />
+    {/* 引力透镜微光 */}
+    <circle
+      cx="16"
+      cy="16"
+      r="5"
+      fill="none"
+      stroke="var(--color-icon-white)"
+      strokeWidth="0.5"
+      opacity="0.15"
+      strokeDasharray="2 6"
+    />
+  </svg>
+)
 
 const ThinkingEffect: React.FC<Props> = ({ isThinking, thinkingTimeText, content, expanded }) => {
   const messages = useMemo(() => {
@@ -32,11 +73,41 @@ const ThinkingEffect: React.FC<Props> = ({ isThinking, thinkingTimeText, content
   return (
     <ThinkingContainer style={{ height: containerHeight }} className={expanded ? 'expanded' : ''}>
       <LoadingContainer>
+        {/* 外层吸积盘缓慢旋转 */}
+        <motion.div
+          variants={accretionVariants}
+          animate={isThinking ? 'active' : 'idle'}
+          initial="idle"
+          style={{
+            position: 'absolute',
+            width: '100%',
+            height: '100%',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center'
+          }}>
+          <svg
+            width={44}
+            height={44}
+            viewBox="0 0 32 32"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            style={{ position: 'absolute' }}>
+            <circle cx="16" cy="16" r="15" stroke="var(--color-primary)" strokeWidth="0.5" opacity="0.2" />
+            <circle
+              cx="16"
+              cy="16"
+              r="13.5"
+              stroke="var(--color-primary)"
+              strokeWidth="0.3"
+              opacity="0.1"
+              strokeDasharray="2 4"
+            />
+          </svg>
+        </motion.div>
+        {/* 内层脉冲 */}
         <motion.div variants={lightbulbVariants} animate={isThinking ? 'active' : 'idle'} initial="idle">
-          <Lightbulb
-            size={!showThinking || messages.length < 2 ? 20 : 30}
-            style={{ transition: 'width,height, 150ms' }}
-          />
+          <BlackHoleIcon size={!showThinking || messages.length < 2 ? 22 : 32} />
         </motion.div>
       </LoadingContainer>
 

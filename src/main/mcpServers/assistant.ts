@@ -1,4 +1,3 @@
-import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -112,7 +111,8 @@ const INSTALL_MCP_PACKAGE_TOOL: Tool = {
     properties: {
       package_name: {
         type: 'string',
-        description: 'The npm package name to install, e.g. "@modelcontextprotocol/server-ppt" or a full npm package name'
+        description:
+          'The npm package name to install, e.g. "@modelcontextprotocol/server-ppt" or a full npm package name'
       },
       description: {
         type: 'string',
@@ -858,7 +858,6 @@ class AssistantServer {
       return { content: [{ type: 'text' as const, text: 'Package name is required' }], isError: true }
     }
 
-    // Validate package name (basic check)
     if (!/^(@[a-z0-9-]+\/)?[a-z0-9_.-]+$/i.test(packageName)) {
       return {
         content: [{ type: 'text' as const, text: `Invalid package name: "${packageName}"` }],
@@ -867,77 +866,27 @@ class AssistantServer {
     }
 
     try {
-      const serverId = `mcp_${packageName.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}`
-      const description = args.description || `${packageName} MCP 服务`
-
-      // 1. Add to MCP config (syncs to renderer via electron-store IPC)
-      try {
-        const { configManager } = await import('@main/services/ConfigManager')
-        const existing = configManager.get<any[]>('mcpServers', [])
-        const alreadyExists = existing.some((s: any) => s.name === packageName)
-        if (!alreadyExists) {
-          const newServer = {
-            id: serverId,
-            name: packageName,
-            description,
-            command: 'npx',
-            args: ['-y', packageName],
-            isActive: true,
-            type: 'stdio',
-            installSource: 'manual',
-            isTrusted: true,
-            installedAt: Date.now()
-          }
-          configManager.set('mcpServers', [...existing, newServer])
-          logger.info(`Added ${packageName} to MCP config`)
+      // 通知渲染进程执行安装（渲染进程的 installMcpPackage 处理全套流程）
+      const wins = BrowserWindow.getAllWindows()
+      if (wins.length === 0) {
+        return {
+          content: [{ type: 'text' as const, text: 'No window available to trigger installation' }],
+          isError: true
         }
-      } catch (err) {
-        logger.warn('Failed to write MCP config, will attempt npx directly', err as Error)
       }
-
-      // 2. Notify renderer via IPC to register in Skills
-      try {
-        const wins = BrowserWindow.getAllWindows()
-        for (const win of wins) {
-          win.webContents.send('mcp:package-installed', {
-            packageName,
-            serverId,
-            description
-          })
-        }
-      } catch (err) {
-        logger.warn('Failed to notify renderer for Skills registration', err as Error)
-      }
-
-      // 3. Run npx install in background
-      const npxCommand = process.platform === 'win32' ? 'npx.cmd' : 'npx'
-      const child = spawn(npxCommand, ['-y', packageName], {
-        stdio: ['ignore', 'pipe', 'pipe'],
-        detached: true,
-        shell: true
+      wins[0].webContents.send('mcp:package-installed', {
+        packageName,
+        description: args.description || `${packageName} MCP 服务`
       })
-
-      // Log output
-      child.stdout?.on('data', (data: Buffer) => {
-        logger.info(`[npx:${packageName}] ${data.toString().trim()}`)
-      })
-      child.stderr?.on('data', (data: Buffer) => {
-        logger.info(`[npx:${packageName}] ${data.toString().trim()}`)
-      })
-
-      // Don't await — let it run in background
-      child.unref()
 
       return {
         content: [
           {
             type: 'text' as const,
-            text: `正在安装 MCP 包: ${packageName}\n\n` +
-                  `1. ✅ 已添加到 MCP 服务器配置\n` +
-                  `2. ✅ 正在后台运行 npx -y ${packageName}\n` +
-                  `3. ✅ 将自动注册到 Skills 管理室\n\n` +
-                  `安装完成后即可通过 Hub 使用此 MCP 服务提供的工具。\n` +
-                  `你可以继续使用其他工具，安装过程不会阻塞。`
+            text:
+              `MCP 包 "${packageName}" 安装已启动。\n\n` +
+              `终端窗口将自动弹出，安装完成后工具将自动注册到 Skills 管理室并通过 Hub 可用。\n` +
+              `你可以继续使用其他工具，安装过程不会阻塞。`
           }
         ]
       }

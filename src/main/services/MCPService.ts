@@ -5,6 +5,7 @@ import path from 'node:path'
 
 import { loggerService } from '@logger'
 import { getMCPServersFromRedux } from '@main/apiServer/utils/mcp'
+import { isWin } from '@main/constant'
 import { createInMemoryMCPServer } from '@main/mcpServers/factory'
 import { makeSureDirExists, removeEnvProxy } from '@main/utils'
 import { getConfigDir } from '@main/utils/file'
@@ -188,10 +189,7 @@ class McpService {
         const timeoutPromise = new Promise<never>((_, reject) =>
           setTimeout(() => reject(new Error(`Timeout listing tools from ${server.name}`)), 15000)
         )
-        const tools = await Promise.race([
-          this.listToolsImpl(server),
-          timeoutPromise
-        ])
+        const tools = await Promise.race([this.listToolsImpl(server), timeoutPromise])
         const disabledTools = new Set(server.disabledTools ?? [])
         return disabledTools.size > 0 ? tools.filter((tool) => !disabledTools.has(tool.name)) : tools
       })
@@ -437,6 +435,16 @@ class McpService {
                 // Use system npx
                 cmd = npxPath
                 getServerLogger(server).debug(`Using system npx`, { command: cmd })
+
+                // On Windows, Node.js may only ship npx.cmd (no npx.exe).
+                // .cmd files need shell: true to execute, which the MCP SDK's
+                // StdioClientTransport doesn't support by default. Wrap in
+                // cmd.exe /c to handle this case.
+                if (isWin && cmd.toLowerCase().endsWith('.cmd')) {
+                  args = ['/d', '/s', '/c', cmd, ...args]
+                  cmd = process.env.COMSPEC || 'cmd.exe'
+                  getServerLogger(server).debug(`Wrapping .cmd npx via cmd.exe /c`, { cmd, args })
+                }
               } else {
                 // System npx not found, try bundled bun as fallback
                 getServerLogger(server).debug(`System npx not found, checking for bundled bun`)

@@ -38,26 +38,38 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
   const { navbarPosition } = useNavbarPosition()
 
   const toggleTheme = () => {
-    const nextTheme = settedTheme === ThemeMode.dark ? ThemeMode.light : ThemeMode.dark
+    const themeOrder = [ThemeMode.dark, ThemeMode.light, ThemeMode.blackhole, ThemeMode.system]
+    const currentIndex = themeOrder.indexOf(settedTheme)
+    const nextTheme = themeOrder[(currentIndex + 1) % themeOrder.length]
     setSettedTheme(nextTheme)
   }
 
   useEffect(() => {
     // Set initial theme and OS attributes on body
     document.body.setAttribute('os', isMac ? 'mac' : isWin ? 'windows' : 'linux')
-    document.body.setAttribute('theme-mode', actualTheme)
-    if (actualTheme === ThemeMode.dark) {
-      document.body.classList.remove('light')
-      document.body.classList.add('dark')
+
+    // Blackhole theme: use dark as base + add blackhole-theme class
+    if (settedTheme === ThemeMode.blackhole) {
+      document.body.setAttribute('theme-mode', ThemeMode.dark)
+      document.body.classList.add('blackhole-theme')
+      document.body.classList.remove('light', 'dark')
+      setActualTheme(ThemeMode.dark)
     } else {
-      document.body.classList.remove('dark')
-      document.body.classList.add('light')
+      document.body.classList.remove('blackhole-theme')
+      document.body.setAttribute('theme-mode', actualTheme)
+      if (actualTheme === ThemeMode.dark) {
+        document.body.classList.remove('light')
+        document.body.classList.add('dark')
+      } else {
+        document.body.classList.remove('dark')
+        document.body.classList.add('light')
+      }
     }
     document.body.setAttribute('navbar-position', navbarPosition)
     document.documentElement.lang = language
 
-    // 强制默认深色：把所有非 dark/light 值转为 dark
-    if (settedTheme !== ThemeMode.dark && settedTheme !== ThemeMode.light) {
+    // 强制默认深色：把所有非 dark/light/blackhole 值转为 dark
+    if (settedTheme !== ThemeMode.dark && settedTheme !== ThemeMode.light && settedTheme !== ThemeMode.blackhole) {
       setSettedTheme(ThemeMode.dark)
     }
 

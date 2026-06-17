@@ -30,22 +30,13 @@ export const DEFAULT_MESSAGE_MENUBAR_BUTTON_IDS: MessageMenubarButtonId[] = [
   'copy',
   'assistant-regenerate',
   'assistant-mention-model',
-  'translate',
   'useful',
-  'notes',
   'delete',
   'trace',
-  'inspect-data',
-  'more-menu'
+  'inspect-data'
 ]
 
-export const SESSION_MESSAGE_MENUBAR_BUTTON_IDS: MessageMenubarButtonId[] = [
-  'copy',
-  'translate',
-  'notes',
-  'delete',
-  'more-menu'
-]
+export const SESSION_MESSAGE_MENUBAR_BUTTON_IDS: MessageMenubarButtonId[] = ['copy', 'delete']
 
 const messageMenubarRegistry = new Map<MessageMenubarScope, MessageMenubarScopeConfig>([
   [DEFAULT_MESSAGE_MENUBAR_SCOPE, { buttonIds: [...DEFAULT_MESSAGE_MENUBAR_BUTTON_IDS] }],

@@ -688,26 +688,37 @@ export const InputbarCore: FC<InputbarCoreProps> = ({
 // Styled Components
 const DragHandle = styled.div`
   position: absolute;
-  top: -3px;
-  left: 0;
-  right: 0;
-  height: 6px;
+  top: -4px;
+  left: 20%;
+  right: 20%;
+  height: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: row-resize;
-  color: var(--color-icon);
   opacity: 0;
-  transition: opacity 0.2s;
+  transition: opacity 0.3s ease;
   z-index: 1;
+
+  &::after {
+    content: '';
+    width: 30px;
+    height: 2px;
+    border-radius: 2px;
+    background: var(--color-border);
+    transition: all 0.3s ease;
+  }
 
   &:hover {
     opacity: 1;
+    &::after {
+      background: color-mix(in srgb, var(--color-primary) 40%, transparent);
+      width: 40px;
+    }
   }
 
   .anticon {
-    transform: rotate(90deg);
-    font-size: 14px;
+    display: none;
   }
 `
 
@@ -716,20 +727,25 @@ const Container = styled.div`
   flex-direction: column;
   position: relative;
   z-index: 2;
-  padding: 0 18px 18px 18px;
+  padding: 0 16px 14px 16px;
   background-color: var(--color-background);
   [navbar-position='top'] & {
-    padding: 0 18px 10px 18px;
+    padding: 0 16px 8px 16px;
   }
 `
 
 const InputBarContainer = styled.div`
   border: 0.5px solid var(--color-border);
-  transition: all 0.2s ease;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
-  border-radius: 17px;
-  padding-top: 8px;
+  border-radius: 16px;
+  padding-top: 6px;
   background-color: var(--color-background-opacity);
+
+  &:focus-within {
+    border-color: color-mix(in srgb, var(--color-primary) 30%, transparent);
+    box-shadow: 0 0 18px -8px var(--color-primary);
+  }
 
   &.file-dragging {
     border: 2px dashed #2ecc71;
@@ -770,9 +786,9 @@ const BottomBar = styled.div`
   display: flex;
   flex-direction: row;
   justify-content: space-between;
-  padding: 5px 8px;
-  height: 40px;
-  gap: 16px;
+  padding: 4px 6px;
+  height: 36px;
+  gap: 8px;
   position: relative;
   z-index: 2;
   flex-shrink: 0;

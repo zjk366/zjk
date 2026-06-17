@@ -1,0 +1,85 @@
+/* ============================================================
+   Blackhole Theme - Deep Space
+   Scoped under body.blackhole-theme — activated via ThemeMode.blackhole
+   SAFETY: CSS variables ONLY. NO background gradients, NO ::before/::after,
+   NO backdrop-filter, NO transitions, NO position overrides.
+   Any decorative CSS goes here ONLY if proven safe in Electron.
+   ============================================================ */
+
+body.blackhole-theme {
+  --color-white: #f0f4f8;
+  --color-white-soft: rgba(240, 244, 248, 0.85);
+  --color-white-mute: rgba(240, 244, 248, 0.95);
+
+  --color-black: #0d1117;
+  --color-black-soft: #131920;
+  --color-black-mute: #1a2330;
+
+  --color-gray-1: #8b949e;
+  --color-gray-2: #6e7681;
+  --color-gray-3: #525d6e;
+
+  --color-text-1: #f0f4f8;
+  --color-text-2: #bcc6d4;
+  --color-text-3: #8993a3;
+
+  --color-background: var(--color-black);
+  --color-background-soft: var(--color-black-soft);
+  --color-background-mute: var(--color-black-mute);
+  --color-background-opacity: rgba(13, 17, 23, 0.85);
+  --inner-glow-opacity: 0.3;
+
+  --color-primary: #3b82f6;
+  --color-primary-soft: rgba(59, 130, 246, 0.5);
+  --color-primary-mute: rgba(59, 130, 246, 0.18);
+
+  --color-text: var(--color-text-1);
+  --color-text-secondary: #c5cedc;
+  --color-icon: rgba(200, 215, 230, 0.85);
+  --color-icon-white: #f0f4f8;
+  --color-border: rgba(255, 255, 255, 0.08);
+  --color-border-soft: rgba(255, 255, 255, 0.05);
+  --color-border-mute: rgba(255, 255, 255, 0.03);
+  --color-error: #f85149;
+  --color-link: #58a6ff;
+  --color-code-background: rgba(26, 35, 48, 0.9);
+  --color-inline-code-background: rgba(56, 139, 253, 0.12);
+  --color-inline-code-text: rgb(255, 160, 150);
+  --color-hover: rgba(255, 255, 255, 0.06);
+  --color-active: rgba(255, 255, 255, 0.1);
+  --color-frame-border: rgba(255, 255, 255, 0.08);
+  --color-group-background: rgba(19, 25, 32, 0.6);
+
+  --color-reference: rgba(56, 139, 253, 0.15);
+  --color-reference-text: #d0d7de;
+  --color-reference-background: rgba(13, 17, 23, 0.9);
+
+  --color-list-item: rgba(255, 255, 255, 0.08);
+  --color-list-item-hover: rgba(255, 255, 255, 0.04);
+
+  --modal-background: #0d1117;
+
+  --color-highlight: rgba(0, 0, 0, 1);
+  --color-background-highlight: rgba(56, 139, 253, 0.25);
+  --color-background-highlight-accent: rgba(88, 166, 255, 0.35);
+
+  --navbar-background-mac: rgba(13, 17, 23, 0.7);
+  --navbar-background: #0d1117;
+
+  --chat-background: transparent;
+  --chat-background-user: rgba(59, 130, 246, 0.08);
+  --chat-background-assistant: rgba(255, 255, 255, 0.015);
+  --chat-text-user: var(--color-text-1);
+
+  --list-item-border-radius: 10px;
+
+  --color-status-success: #3fb950;
+  --color-status-error: var(--color-error);
+  --color-status-warning: #d29922;
+}
+
+/* Sidebar left-nav override (flat selector for Electron compatibility) */
+body.blackhole-theme[navbar-position='left'] {
+  --color-list-item: rgba(255, 255, 255, 0.1);
+  --color-list-item-hover: rgba(255, 255, 255, 0.06);
+}

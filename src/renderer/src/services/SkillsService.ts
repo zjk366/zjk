@@ -35,7 +35,7 @@ class SkillsService {
     if (!skill) return
     await db.table('local_skills').update(id, {
       isEnabled: !skill.isEnabled,
-      updatedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
     })
     logger.info(`Skill ${skill.name} ${skill.isEnabled ? 'disabled' : 'enabled'}`)
   }
@@ -49,7 +49,7 @@ class SkillsService {
         ...skill,
         id: existing.id,
         createdAt: existing.createdAt,
-        updatedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
       })
       logger.info(`Skill updated: ${skill.name}`)
     } else {
@@ -79,6 +79,30 @@ class SkillsService {
         s.plainDescription.toLowerCase().includes(kw) ||
         s.tags.some((t) => t.toLowerCase().includes(kw))
     )
+  }
+
+  /**
+   * 清理无效技能（删掉已不存在 MCP 服务器的自动安装技能）
+   * @param activeServerNames - 当前活跃的 MCP 服务器名列表
+   * @returns 删除的技能数量
+   */
+  async cleanupOrphaned(activeServerNames: string[]): Promise<number> {
+    const all = await this.getAll()
+    let removed = 0
+    for (const skill of all) {
+      // 只清理 MCP 自动安装来源的技能，跳过手动创建的
+      if (!skill.source?.includes('MCP')) continue
+      // 如果技能名不在活跃服务器列表中，说明已失效
+      if (!activeServerNames.includes(skill.name)) {
+        await this.remove(skill.id)
+        removed++
+        logger.info(`Cleaned up orphaned skill: ${skill.name}`)
+      }
+    }
+    if (removed > 0) {
+      logger.info(`Cleaned up ${removed} orphaned skill(s)`)
+    }
+    return removed
   }
 }
 

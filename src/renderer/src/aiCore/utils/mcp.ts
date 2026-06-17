@@ -1,8 +1,7 @@
 import { loggerService } from '@logger'
 import MonitorService from '@renderer/services/MonitorService'
 import store from '@renderer/store'
-import type { MCPCallToolResponse, MCPTool, MCPToolResponse } from '@renderer/types'
-import { FILE_TYPE } from '@renderer/types'
+import { FILE_TYPE, type MCPCallToolResponse, type MCPTool, type MCPToolResponse } from '@renderer/types'
 import { callMCPTool, getMcpServerByTool, isToolAutoApproved } from '@renderer/utils/mcp-tools'
 import {
   confirmSameNameTools,
@@ -14,6 +13,8 @@ import { type Tool, type ToolSet } from 'ai'
 import { jsonSchema, tool } from 'ai'
 import type { JSONSchema7 } from 'json-schema'
 
+import { waitForUserChoice } from './clarify'
+
 const logger = loggerService.withContext('MCP-utils')
 
 // Setup tools configuration based on provided parameters
@@ -23,13 +24,122 @@ export function setupToolsConfig(
 ): Record<string, Tool<any, any>> | undefined {
   let tools: ToolSet = {}
 
-  if (!mcpTools?.length) {
-    return undefined
+  if (mcpTools?.length) {
+    tools = convertMcpToolsToAiSdkTools(mcpTools, allowedTools)
   }
 
-  tools = convertMcpToolsToAiSdkTools(mcpTools, allowedTools)
+  // ask_user — 中轮转向工具：向用户提问并等待选择/输入
+  // 当任务需要用户决策、确认方向或提供额外信息时使用。
+  // 与 Claude Code agent 的 AskUserQuestion 不同，此工具走通用 Promise 挂起模式，
+  // 不经过权限系统，所有模型均可调用。
+  tools['ask_user'] = tool({
+    description:
+      '向用户提问获取决策或信息。当任务需要用户选择方向、确认细节或提供缺失信息时使用。不要猜测用户的偏好，直接问。',
+    inputSchema: jsonSchema({
+      type: 'object',
+      properties: {
+        question: { type: 'string', description: '要问用户的完整问题' },
+        choices: {
+          type: 'array',
+          items: { type: 'string' },
+          description: '选项列表（最多 6 个），用户可直接点击选择。不传则仅显示输入框。'
+        },
+        allowFreeText: {
+          type: 'boolean',
+          description: '是否允许用户自由输入。默认 true（有 choices 时也允许自由输入）。'
+        }
+      },
+      required: ['question']
+    } as any),
+    execute: async (params: Record<string, unknown>, { toolCallId }: { toolCallId: string }) => {
+      const question = String(params.question || '')
+      const choices = (params.choices as string[]) || []
+      const allowFreeText = params.allowFreeText !== false
 
-  return tools
+      logger.info(`[Clarify] ask_user: ${question} (choices: ${choices.length})`)
+
+      // 挂起当前推理，等待用户选择
+      return await waitForUserChoice(toolCallId, { question, choices, allowFreeText })
+    }
+  })
+
+  // write_code_file — 直接写入代码/脚本文件，避免终端 echo 的 shell 转义问题
+  // 用于创建 Python/JS/PowerShell 等脚本，写入后由 terminal 执行。
+  tools['write_code_file'] = tool({
+    description:
+      '直接写入代码文件到磁盘（避免终端 echo 的 shell 转义问题）。' +
+      '当需要创建 Python/JS/Shell 等脚本时使用此工具替代 terminal echo 写入。' +
+      '写入后请用 terminal 执行。' +
+      '用户指定了保存位置时传绝对路径（如 C:\\Users\\xxx\\Documents\\script.py）；' +
+      '用户未指定位置时不传 file_path，文件自动存入文件库。',
+    inputSchema: jsonSchema({
+      type: 'object',
+      properties: {
+        file_path: { type: 'string', description: '（可选）用户指定的保存路径，绝对路径。不传则自动存入文件库。' },
+        content: { type: 'string', description: '文件内容，直接原样写入，无需转义' }
+      },
+      required: ['content']
+    } as any),
+    execute: async ({ file_path, content }: { file_path?: string; content: string }) => {
+      try {
+        const libPath = localStorage.getItem('filelib_path')
+
+        if (file_path) {
+          // 用户指定了路径 → 写入指定位置 + 备份到文件库
+          const isAbsolute =
+            file_path.startsWith('/') || /^[a-zA-Z]:\\/.test(file_path) || /^[a-zA-Z]:\//.test(file_path)
+          const fullPath = isAbsolute
+            ? file_path
+            : [await window.api.file.getHomeDir(), file_path].join('/').replace(/\\/g, '/')
+
+          const parentDir = fullPath.substring(0, Math.max(fullPath.lastIndexOf('/'), fullPath.lastIndexOf('\\')))
+          if (parentDir) await window.api.file.mkdir(parentDir).catch(() => {})
+
+          await window.api.file.write(fullPath, content)
+
+          // 备份到文件库
+          if (libPath) {
+            try {
+              const dateStr = new Date().toISOString().slice(0, 7)
+              const libDir = `${libPath.replace(/\\/g, '/')}/files/${dateStr}`
+              const fileName = fullPath.split('/').pop() || fullPath.split('\\').pop() || `file_${Date.now()}`
+              await window.api.file.mkdir(libDir).catch(() => {})
+              await window.api.file.write(`${libDir}/${fileName}`, content)
+            } catch {
+              /* ok */
+            }
+          }
+
+          logger.info(`[write_code_file] Written to ${fullPath}`)
+          return `文件已写入: ${fullPath}\n\n请使用 terminal 执行此脚本。`
+        }
+
+        // 用户没指定路径 → 写入临时目录（由系统自动清理），同时备份到文件库
+        const tempPath = await window.api.file.createTempFile(`script_${Date.now()}.py`)
+        await window.api.file.write(tempPath, content)
+
+        // 备份到文件库
+        if (libPath) {
+          try {
+            const dateStr = new Date().toISOString().slice(0, 7)
+            const libDir = `${libPath.replace(/\\/g, '/')}/files/${dateStr}`
+            await window.api.file.mkdir(libDir).catch(() => {})
+            const backupName = `script_${Date.now()}.py`
+            await window.api.file.write(`${libDir}/${backupName}`, content)
+          } catch {
+            /* ok */
+          }
+        }
+
+        logger.info(`[write_code_file] Written to temp: ${tempPath}`)
+        return `脚本已写入临时目录: ${tempPath}\n\n执行完毕后自动清理。请使用 terminal 执行此脚本。`
+      } catch (err: any) {
+        return `写入失败: ${err?.message || '未知错误'}`
+      }
+    }
+  })
+
+  return Object.keys(tools).length > 0 ? (tools as any) : undefined
 }
 
 /** MIME 类型到友好描述的映射 */
@@ -268,7 +378,7 @@ export function convertMcpToolsToAiSdkTools(mcpTools: MCPTool[], allowedTools?: 
             }
           }
 
-          let savedImageCount = 0
+          const savedImageCount = 0
           let savedFileCount = 0
           for (const item of saveItems) {
             try {
@@ -431,6 +541,86 @@ export function convertMcpToolsToAiSdkTools(mcpTools: MCPTool[], allowedTools?: 
       }
     })
   }
+
+  // 任务拆解与跟踪工具
+  const planStore = new Map<string, { steps: any[] }>()
+  tools['plan_task'] = tool({
+    description:
+      '在开始复杂任务之前，拆解执行步骤并记录到计划中。每完成一步更新状态。如果某步失败则记录失败原因并尝试替代方案。',
+    inputSchema: jsonSchema({
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['init', 'update', 'get'],
+          description: 'init=创建新计划, update=更新步骤状态, get=查看当前计划'
+        },
+        steps: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              description: { type: 'string' },
+              status: { type: 'string', enum: ['pending', 'in_progress', 'completed', 'failed'] }
+            }
+          },
+          description: '步骤列表（init 时必填）'
+        },
+        step_id: { type: 'string', description: '要更新的步骤 ID（update 时必填）' },
+        new_status: {
+          type: 'string',
+          enum: ['pending', 'in_progress', 'completed', 'failed'],
+          description: '新状态（update 时必填）'
+        },
+        error_type: {
+          type: 'string',
+          description: '失败时的错误分类：NETWORK_ERROR / TOOL_ERROR / PACKAGE_ERROR / UNKNOWN'
+        },
+        suggestion: { type: 'string', description: '失败时的替代方案建议' },
+        plan_id: { type: 'string', description: '计划 ID，不传则自动生成' }
+      },
+      required: ['action']
+    } as any),
+    execute: async ({ action, steps, step_id, new_status, error_type, suggestion, plan_id: inputPlanId }: any) => {
+      const planId = inputPlanId || `plan_${Date.now()}`
+      if (action === 'init') {
+        const plan = { steps: (steps || []).map((s: any) => ({ ...s, status: s.status || 'pending' })) }
+        planStore.set(planId, plan)
+        return `计划已创建 (${planId})，共 ${plan.steps.length} 步。\n${plan.steps.map((s: any, i: number) => `${i + 1}. [${s.status}] ${s.description}`).join('\n')}`
+      }
+      const plan = planStore.get(planId)
+      if (!plan) return `未找到计划: ${planId}`
+      if (action === 'update') {
+        const step = plan.steps.find((s: any) => s.id === step_id)
+        if (!step) return `未找到步骤: ${step_id}`
+        step.status = new_status
+        if (new_status === 'failed') {
+          step.error_type = error_type || 'UNKNOWN'
+          step.suggestion = suggestion || ''
+        }
+        const failedSteps = plan.steps.filter((s: any) => s.status === 'failed')
+        const completedSteps = plan.steps.filter((s: any) => s.status === 'completed')
+        let summary = `步骤 ${step_id} 已更新为 ${new_status}\n`
+        summary += `进度: ${completedSteps.length}/${plan.steps.length}\n`
+        if (failedSteps.length > 0) {
+          summary += `失败步骤: ${failedSteps.map((s: any) => `${s.description}[${s.error_type}]`).join(', ')}\n`
+          summary += `建议: ${failedSteps[0].suggestion || '尝试替代方案或重试'}`
+        }
+        return summary
+      }
+      if (action === 'get') {
+        const completed = plan.steps.filter((s: any) => s.status === 'completed').length
+        return `计划 (${planId}) ${completed}/${plan.steps.length}\n${plan.steps
+          .map(
+            (s: any, i: number) =>
+              `${i + 1}. [${s.status}] ${s.description}${s.error_type ? ` (${s.error_type})` : ''}${s.suggestion ? ` → ${s.suggestion}` : ''}`
+          )
+          .join('\n')}`
+      }
+      return `未知操作: ${action}`
+    }
+  })
 
   return tools
 }

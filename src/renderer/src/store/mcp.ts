@@ -195,17 +195,19 @@ export const initializeMCPServers = (existingServers: MCPServer[], dispatch: (ac
   import('@renderer/services/SkillsService').then(({ default: SkillsService }) => {
     const svc = SkillsService.getInstance()
     builtinMCPServers.forEach((s) => {
-      svc.register({
-        id: `builtin_${s.name.replace(/[^a-zA-Z0-9]/g, '_')}`,
-        name: s.name,
-        description: `${s.name} 内置 MCP 服务`,
-        plainDescription: s.reference || `${s.name} - Cherry Studio 内置 MCP 服务`,
-        source: 'MCP 内置',
-        isEnabled: true,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        tags: ['MCP', '内置'],
-      }).catch(() => {})
+      svc
+        .register({
+          id: `builtin_${s.name.replace(/[^a-zA-Z0-9]/g, '_')}`,
+          name: s.name,
+          description: `${s.name} 内置 MCP 服务`,
+          plainDescription: s.reference || `${s.name} - Cherry Studio 内置 MCP 服务`,
+          source: 'MCP 内置',
+          isEnabled: true,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          tags: ['MCP', '内置']
+        })
+        .catch(() => {})
     })
   })
 
@@ -218,17 +220,23 @@ export const initializeMCPServers = (existingServers: MCPServer[], dispatch: (ac
     const startNext = (i: number) => {
       if (i >= serversToStart.length) return
       const s = serversToStart[i]
-      restartServer(s).catch(() => {}).finally(() => {
-        setTimeout(() => startNext(i + 1), 2000)
-      })
+      restartServer(s)
+        .catch(() => {})
+        .finally(() => {
+          setTimeout(() => startNext(i + 1), 2000)
+        })
     }
     setTimeout(() => startNext(0), 1000)
   }
 
   // 5. 清理已移除的内置服务（从 Redux 和 Skills 中删除）
   const OBSOLETE_NAMES = [
-    '@cherry/flomo', '@cherry/memory', '@cherry/brave-search',
-    '@cherry/filesystem', '@cherry/dify-knowledge', '@cherry/didi-mcp',
+    '@cherry/flomo',
+    '@cherry/memory',
+    '@cherry/brave-search',
+    '@cherry/filesystem',
+    '@cherry/dify-knowledge',
+    '@cherry/didi-mcp',
     '@cherry/nowledge-mem'
   ]
   existingServers.forEach((server) => {
@@ -238,13 +246,16 @@ export const initializeMCPServers = (existingServers: MCPServer[], dispatch: (ac
   })
   import('@renderer/services/SkillsService').then(({ default: SkillsService }) => {
     const svc = SkillsService.getInstance()
-    svc.getAll().then((all) => {
-      all.forEach((s) => {
-        if (OBSOLETE_NAMES.includes(s.name)) {
-          svc.remove(s.id).catch(() => {})
-        }
+    svc
+      .getAll()
+      .then((all) => {
+        all.forEach((s) => {
+          if (OBSOLETE_NAMES.includes(s.name)) {
+            svc.remove(s.id).catch(() => {})
+          }
+        })
       })
-    }).catch(() => {})
+      .catch(() => {})
   })
 }
 
@@ -257,6 +268,7 @@ let _counter = 0
 export function installMcpPackage(packageName: string, description?: string): MCPServer {
   _counter++
   const now = Date.now()
+  // 尝试提取二进制名（取包名最后一段，如 @8btc/ppt-generator-mcp → ppt-generator-mcp）
   const server: MCPServer = {
     id: `mcp_${packageName.replace(/[^a-zA-Z0-9]/g, '_')}_${_counter}`,
     name: packageName,
@@ -267,39 +279,46 @@ export function installMcpPackage(packageName: string, description?: string): MC
     type: 'stdio',
     installSource: 'manual',
     isTrusted: true,
-    installedAt: now,
+    installedAt: now
   }
   store.dispatch(addMCPServer(server))
 
-  // 1. 弹出终端窗口（让用户看到 npx 下载过程，传包名用于窗口关闭后的热加载）
+  // 1. 弹出终端窗口（先 npm install -g 安装，避免 npx stdio 污染）
   const openTerminal = (window as any).api?.openTerminal
   if (typeof openTerminal === 'function') {
     openTerminal(`npx -y ${packageName}`, packageName)
   }
 
-  // 2. 通过 MCP 服务连接到 Hub（让 AI 能识别）
+  // 2. 后台轮询连接 Hub（不阻塞，npx 下载完自动连上）
   const restartServer = (window as any).api?.mcp?.restartServer
   if (typeof restartServer === 'function') {
-    restartServer(server).then(() => {
-      window.toast.success(`MCP ${packageName} 已启动并接入 Hub`)
-    }).catch((err: any) => {
-      window.toast.error(`MCP 接入 Hub 失败，但终端窗口已打开: ${err?.message || ''}`)
-    })
+    let retries = 20 // 最长等 100 秒
+    const poll = () => {
+      if (retries-- <= 0) return
+      restartServer(server)
+        .then(() => {
+          window.toast.success(`MCP ${packageName} 已启动并接入 Hub`)
+        })
+        .catch(() => setTimeout(poll, 5000))
+    }
+    setTimeout(poll, 5000)
   }
 
   // 同步注册到 Skills 管理室
   import('@renderer/services/SkillsService').then(({ default: SkillsService }) => {
-    SkillsService.getInstance().register({
-      id: `mcp_${server.id}`,
-      name: packageName,
-      description: description || `${packageName} MCP 服务`,
-      plainDescription: `${packageName} - 通过 npx 自动安装的 MCP 服务`,
-      source: 'MCP 安装',
-      isEnabled: true,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      tags: ['MCP', '自动安装'],
-    }).catch(() => {})
+    SkillsService.getInstance()
+      .register({
+        id: `mcp_${server.id}`,
+        name: packageName,
+        description: description || `${packageName} MCP 服务`,
+        plainDescription: `${packageName} - 通过 npx 自动安装的 MCP 服务`,
+        source: 'MCP 安装',
+        isEnabled: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        tags: ['MCP', '自动安装']
+      })
+      .catch(() => {})
   })
 
   window.toast.success(`已添加 MCP: ${packageName}`)

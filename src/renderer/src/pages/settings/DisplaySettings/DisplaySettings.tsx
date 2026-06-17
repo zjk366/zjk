@@ -149,6 +149,23 @@ const DisplaySettings: FC = () => {
         )
       },
       {
+        value: ThemeMode.blackhole,
+        label: (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+            <div
+              style={{
+                width: 16,
+                height: 16,
+                borderRadius: '50%',
+                background: 'radial-gradient(circle at 35% 35%, #1677ff, #0a0e1a)',
+                border: '1.5px solid rgba(22, 119, 255, 0.4)'
+              }}
+            />
+            <span>Blackhole</span>
+          </div>
+        )
+      },
+      {
         value: ThemeMode.system,
         label: (
           <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>

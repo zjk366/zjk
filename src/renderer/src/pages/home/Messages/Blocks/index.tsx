@@ -6,7 +6,6 @@ import type { ImageMessageBlock, Message, MessageBlock } from '@renderer/types/n
 import { MessageBlockStatus, MessageBlockType } from '@renderer/types/newMessage'
 import { isMainTextBlock, isMessageProcessing, isToolBlock, isVideoBlock } from '@renderer/utils/messageUtils/is'
 import { AnimatePresence, motion, type Variants } from 'motion/react'
-import { BeatLoader } from 'react-spinners'
 import React, { useMemo } from 'react'
 import { useSelector } from 'react-redux'
 import styled from 'styled-components'
@@ -161,13 +160,11 @@ const MessageBlockRenderer: React.FC<Props> = ({ blocks, message }) => {
               </AnimatedBlockWrapper>
             )
           } else if (block[0].type === MessageBlockType.TOOL) {
-            // 执行中的工具调用：隐藏详情，只显示加载动画
+            // 执行中的工具调用：不重复显示图标，改用统一加载线
             if (message.status.includes('ing')) {
               return (
                 <AnimatedBlockWrapper key={groupKey} enableAnimation={true}>
-                  <ToolExecutingIndicator>
-                    <BeatLoader color="var(--color-text-3)" size={6} speedMultiplier={0.8} />
-                  </ToolExecutingIndicator>
+                  <ToolExecutingIndicator />
                 </AnimatedBlockWrapper>
               )
             }
@@ -289,8 +286,23 @@ const ImageBlockGroup = styled.div<{ count: number }>`
 `
 
 const ToolExecutingIndicator = styled.div`
-  display: flex;
-  align-items: center;
-  height: 24px;
-  padding: 4px 0;
+  height: 1.5px;
+  margin: 8px 0;
+  border-radius: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--color-primary) 40%, transparent) 30%,
+    var(--color-primary) 50%,
+    color-mix(in srgb, var(--color-primary) 40%, transparent) 70%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: accretionPulse 1.8s ease-in-out infinite;
+
+  @keyframes accretionPulse {
+    0% { background-position: 200% 0; opacity: 0.3; }
+    50% { opacity: 1; }
+    100% { background-position: -200% 0; opacity: 0.3; }
+  }
 `

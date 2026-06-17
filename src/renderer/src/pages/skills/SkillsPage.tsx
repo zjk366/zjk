@@ -5,9 +5,10 @@
  * MCP 类型技能支持一键安装（终端窗口）。
  */
 import SkillsService from '@renderer/services/SkillsService'
+import store from '@renderer/store'
 import type { LocalSkill } from '@renderer/types/localSkill'
 import dayjs from 'dayjs'
-import { ArrowLeft, Plug, PlugZap, Search, Terminal, X } from 'lucide-react'
+import { ArrowLeft, Plug, PlugZap, Search, Terminal, Trash2, X } from 'lucide-react'
 import type { FC } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -22,14 +23,13 @@ const SkillsPage: FC = () => {
   const debounceRef = useRef<ReturnType<typeof setTimeout>>()
   const service = SkillsService.getInstance()
 
-  const isMcpSkill = (s: LocalSkill) => s.tags?.includes('MCP') || s.source === 'MCP 安装' || s.source === 'MCP 自动安装'
+  const isMcpSkill = (s: LocalSkill) =>
+    s.tags?.includes('MCP') || s.source === 'MCP 安装' || s.source === 'MCP 自动安装'
 
   const loadData = useCallback(async () => {
     setLoading(true)
     try {
-      const data = searchQuery.trim()
-        ? await service.search(searchQuery)
-        : await service.getAll()
+      const data = searchQuery.trim() ? await service.search(searchQuery) : await service.getAll()
       // 数据清洗：过滤掉没有名称或名称以点开头的隐藏条目
       const cleaned = data.filter((s) => s.name && !s.name.startsWith('.'))
       setSkills(cleaned)
@@ -40,32 +40,59 @@ const SkillsPage: FC = () => {
     }
   }, [searchQuery, service])
 
-  useEffect(() => { loadData() }, [loadData])
+  useEffect(() => {
+    loadData()
+  }, [loadData])
 
   // 监听 IPC 通知：技能安装完成 → 自动刷新列表
   useEffect(() => {
     const onUpdated = (window as any).api?.onSkillsUpdated
     if (typeof onUpdated === 'function') {
       const unsub = onUpdated(() => loadData())
-      return () => { if (typeof unsub === 'function') unsub() }
+      return () => {
+        if (typeof unsub === 'function') unsub()
+      }
     }
   }, [loadData])
 
-  const handleSearch = useCallback((value: string) => {
-    setSearchQuery(value)
-    if (debounceRef.current) clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => loadData(), 300)
-  }, [loadData])
-
-  const handleToggle = useCallback(async (id: string) => {
-    await service.toggle(id)
-    loadData()
+  const handleCleanup = useCallback(async () => {
+    const activeServers = store
+      .getState()
+      .mcp.servers.filter((s) => s.isActive)
+      .map((s) => s.name)
+    const count = await service.cleanupOrphaned(activeServers)
+    if (count > 0) {
+      window.toast?.success?.(`已清理 ${count} 个无效技能`)
+      loadData()
+    } else {
+      window.toast?.info?.('没有需要清理的无效技能')
+    }
   }, [service, loadData])
 
-  const handleRemove = useCallback(async (id: string) => {
-    await service.remove(id)
-    loadData()
-  }, [service, loadData])
+  const handleSearch = useCallback(
+    (value: string) => {
+      setSearchQuery(value)
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+      debounceRef.current = setTimeout(() => loadData(), 300)
+    },
+    [loadData]
+  )
+
+  const handleToggle = useCallback(
+    async (id: string) => {
+      await service.toggle(id)
+      loadData()
+    },
+    [service, loadData]
+  )
+
+  const handleRemove = useCallback(
+    async (id: string) => {
+      await service.remove(id)
+      loadData()
+    },
+    [service, loadData]
+  )
 
   // 超级模式：单击 MCP 卡片 → 打开终端执行安装命令
   const handleSuperMode = useCallback((skill: LocalSkill) => {
@@ -95,17 +122,29 @@ const SkillsPage: FC = () => {
   return (
     <Root>
       <Header>
-        <BackBtn onClick={() => navigate('/')} title="返回"><ArrowLeft size={18} /></BackBtn>
+        <BackBtn onClick={() => navigate('/')} title="返回">
+          <ArrowLeft size={18} />
+        </BackBtn>
         <Title>A</Title>
         <Title>Skills 管理室</Title>
         <SkillCount>{skills.length}</SkillCount>
         <SearchRow>
+          <CleanupBtn onClick={handleCleanup} title="清理无效技能（删除已卸载 MCP 服务的残留注册）">
+            <Trash2 size={14} />
+          </CleanupBtn>
           <SearchInput
             placeholder="搜索技能名称或描述..."
             value={searchQuery}
             onChange={(e) => handleSearch(e.target.value)}
           />
-          <IconBtn onClick={() => { if (searchQuery) { setSearchQuery(''); loadData() } }} title={searchQuery ? '清除' : '搜索'}>
+          <IconBtn
+            onClick={() => {
+              if (searchQuery) {
+                setSearchQuery('')
+                loadData()
+              }
+            }}
+            title={searchQuery ? '清除' : '搜索'}>
             {searchQuery ? <X size={15} /> : <Search size={15} />}
           </IconBtn>
         </SearchRow>
@@ -123,17 +162,14 @@ const SkillsPage: FC = () => {
                 key={skill.id}
                 $mcp={isMcpSkill(skill)}
                 onClick={() => isMcpSkill(skill) && handleSuperMode(skill)}
-                onDoubleClick={() => handleDoubleClick(skill)}
-              >
+                onDoubleClick={() => handleDoubleClick(skill)}>
                 <CardLeft>
                   <CardIcon>{skill.isEnabled ? <PlugZap size={20} /> : <Plug size={20} />}</CardIcon>
                 </CardLeft>
                 <CardMain>
                   <CardNameRow>
                     <CardName>{skill.name}</CardName>
-                    <CardStatus $active={skill.isEnabled}>
-                      {skill.isEnabled ? '启用' : '禁用'}
-                    </CardStatus>
+                    <CardStatus $active={skill.isEnabled}>{skill.isEnabled ? '启用' : '禁用'}</CardStatus>
                     {isMcpSkill(skill) && <McpBadge>MCP</McpBadge>}
                   </CardNameRow>
                   <CardDesc>{skill.plainDescription || skill.description}</CardDesc>
@@ -142,19 +178,40 @@ const SkillsPage: FC = () => {
                     {skill.source && <span>来源: {skill.source}</span>}
                     {skill.tags.length > 0 && (
                       <TagList>
-                        {skill.tags.filter((t) => t !== 'MCP').map((t) => <Tag key={t}>{t}</Tag>)}
+                        {skill.tags
+                          .filter((t) => t !== 'MCP')
+                          .map((t) => (
+                            <Tag key={t}>{t}</Tag>
+                          ))}
                       </TagList>
                     )}
                   </CardMeta>
                 </CardMain>
                 <CardRight>
-                  <DelBtn onClick={(e) => { e.stopPropagation(); handleRemove(skill.id) }} title="删除">✕</DelBtn>
+                  <DelBtn
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleRemove(skill.id)
+                    }}
+                    title="删除">
+                    ✕
+                  </DelBtn>
                   {isMcpSkill(skill) && (
-                    <SuperBtn onClick={(e) => { e.stopPropagation(); handleSuperMode(skill) }} title="单击安装 · 双击详情">
+                    <SuperBtn
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleSuperMode(skill)
+                      }}
+                      title="单击安装 · 双击详情">
                       <Terminal size={14} />
                     </SuperBtn>
                   )}
-                  <SwitchBtn $active={skill.isEnabled} onClick={(e) => { e.stopPropagation(); handleToggle(skill.id) }}>
+                  <SwitchBtn
+                    $active={skill.isEnabled}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleToggle(skill.id)
+                    }}>
                     <SwitchKnob $active={skill.isEnabled} />
                   </SwitchBtn>
                 </CardRight>
@@ -189,7 +246,9 @@ const SkillsPage: FC = () => {
                 <ModalSection>
                   <ModalLabel>标签</ModalLabel>
                   <TagList>
-                    {modalSkill.tags.map((t) => <Tag key={t}>{t}</Tag>)}
+                    {modalSkill.tags.map((t) => (
+                      <Tag key={t}>{t}</Tag>
+                    ))}
                   </TagList>
                 </ModalSection>
               )}
@@ -246,6 +305,13 @@ const SkillCount = styled.span`
   font-size: 12px; color: var(--color-text-3);
   background: var(--color-background-soft);
   padding: 1px 8px; border-radius: 10px;
+`
+
+const CleanupBtn = styled.button`
+  display: flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border: none; border-radius: 6px;
+  background: transparent; color: var(--color-text-3); cursor: pointer; flex-shrink: 0;
+  &:hover { background: var(--color-background-mute); color: var(--color-error); }
 `
 
 const SearchRow = styled.div`

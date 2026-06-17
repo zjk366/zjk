@@ -625,28 +625,32 @@ const MenusBar = styled.div`
 
 const ActionButton = styled.div<{ $softHoverBg?: boolean }>`
   cursor: pointer;
-  border-radius: 8px;
+  border-radius: 50%;
   display: flex;
-  flex-direction: row;
   justify-content: center;
   align-items: center;
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   transition: all 0.2s ease;
+  color: color-mix(in srgb, var(--color-text-2) 65%, transparent);
+  position: relative;
   &:hover {
-    background-color: ${(props) =>
-      props.$softHoverBg ? 'var(--color-background-soft)' : 'var(--color-background-mute)'};
-    color: var(--color-text-1);
+    background: radial-gradient(circle at center, color-mix(in srgb, var(--color-primary) 15%, transparent) 0%, transparent 70%);
+    color: var(--color-primary);
+    box-shadow: 0 0 12px -4px var(--color-primary);
     .anticon,
     .lucide {
-      color: var(--color-text-1);
+      color: var(--color-primary);
     }
+  }
+  &:active {
+    transform: scale(0.9);
   }
   .anticon,
   .iconfont {
     cursor: pointer;
     font-size: 14px;
-    color: var(--color-icon);
+    color: inherit;
   }
   .icon-at {
     font-size: 16px;

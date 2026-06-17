@@ -1,14 +1,15 @@
 import { HStack } from '@renderer/components/Layout'
-import { useAppDispatch } from '@renderer/store'
+import { useAppDispatch, useAppSelector } from '@renderer/store'
+import { removeAllTopics } from '@renderer/store/assistants'
 import { loadTopicMessagesThunk } from '@renderer/store/thunk/messageThunk'
 import type { Topic } from '@renderer/types'
 import type { Message } from '@renderer/types/newMessage'
 import type { InputRef } from 'antd'
-import { Divider, Input } from 'antd'
+import { Divider, Input, Modal } from 'antd'
 import { last } from 'lodash'
-import { ChevronLeft, CornerDownLeft, Search } from 'lucide-react'
+import { ChevronLeft, CornerDownLeft, Search, Trash2 } from 'lucide-react'
 import type { FC } from 'react'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import styled from 'styled-components'
 
@@ -33,11 +34,26 @@ const HistoryPage: FC = () => {
   const [message, setMessage] = useState<Message | undefined>(_message)
   const inputRef = useRef<InputRef>(null)
   const dispatch = useAppDispatch()
+  const assistants = useAppSelector((s: any) => s.assistants.assistants ?? [])
 
   _search = search
   _stack = stack
   _topic = topic
   _message = message
+
+  const handleClearAll = useCallback(() => {
+    Modal.confirm({
+      title: '清空所有历史记录',
+      content: '确定要清空所有话题和聊天记录吗？此操作不可撤销。',
+      okButtonProps: { danger: true },
+      okText: '清空',
+      cancelText: '取消',
+      onOk: () => {
+        assistants.forEach((a: any) => dispatch(removeAllTopics({ assistantId: a.id })))
+        window.toast?.success?.('已清空所有历史记录')
+      }
+    })
+  }, [assistants, dispatch])
 
   const goBack = () => {
     const _stack = [...stack]
@@ -93,7 +109,14 @@ const HistoryPage: FC = () => {
               </SearchIcon>
             )
           }
-          suffix={search.length ? <CornerDownLeft size={16} /> : null}
+          suffix={
+            <SuffixWrap>
+              {search.length ? <CornerDownLeft size={16} /> : null}
+              <ClearAllBtn onClick={handleClearAll}>
+                <Trash2 size={14} />
+              </ClearAllBtn>
+            </SuffixWrap>
+          }
           ref={inputRef}
           placeholder={t('history.search.placeholder')}
           value={search}
@@ -132,6 +155,28 @@ const Container = styled.div`
   flex: 1;
   flex-direction: column;
   height: 100%;
+`
+
+const SuffixWrap = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+`
+
+const ClearAllBtn = styled.span`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  cursor: pointer;
+  color: var(--color-text-3);
+  transition: all 0.2s ease;
+  &:hover {
+    color: var(--color-error);
+    background: color-mix(in srgb, var(--color-error) 12%, transparent);
+  }
 `
 
 const SearchIcon = styled.div`

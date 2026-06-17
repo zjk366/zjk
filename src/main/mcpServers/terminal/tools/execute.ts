@@ -194,6 +194,14 @@ export async function handleExecuteTool(args: unknown) {
     }
   }
 
+  // ── 禁止用 Python 库生成 Office 文档 ─────────────────
+  // NOTE: 2026-06 移除 FORBIDDEN_DOC_LIBS 阻断——AI 生成的 Python 脚本经测试
+  // 配合 PYTHONIOENCODING=utf-8 可正常处理中文。如有编码问题，由 AI 自行修复。
+  // 保留注释供参考：
+  // const FORBIDDEN_DOC_LIBS = ['python-pptx', 'python-docx', 'openpyxl', 'xlwt']
+  // const lowerCmd = command.toLowerCase()
+  // if (FORBIDDEN_DOC_LIBS.some((lib) => lowerCmd.includes(lib))) { ... }
+
   // ── 检查是否操作受保护的系统路径 ─────────────────────
   const protectedFiles = checkProtectedFileOperation(command)
   if (protectedFiles.length > 0) {
@@ -266,7 +274,11 @@ export async function handleExecuteTool(args: unknown) {
       process.platform === 'win32' ? ['/c', command] : ['-c', command],
       {
         cwd: workDir,
-        windowsHide: true
+        windowsHide: true,
+        env: {
+          ...process.env,
+          PYTHONIOENCODING: 'utf-8'
+        }
       }
     )
 

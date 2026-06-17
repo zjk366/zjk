@@ -17,9 +17,10 @@ const ActionIconButton: React.FC<ActionIconButtonProps> = ({ children, active, c
       type="text"
       shape="circle"
       className={cn(
-        '[&_.icon-a-addchat]:-mb-0.5 flex h-7.5 w-7.5 cursor-pointer flex-row items-center justify-center border-none p-0 text-base transition-all duration-300 ease-in-out [&_.anticon]:text-icon [&_.icon-a-addchat]:text-lg [&_.icon]:text-icon [&_.iconfont]:text-icon [&_.lucide]:text-icon',
+        '[&_.icon-a-addchat]:-mb-0.5 flex h-7 w-7 cursor-pointer flex-row items-center justify-center border-none p-0 text-base transition-all duration-300 ease-in-out [&_.anticon]:text-icon [&_.icon-a-addchat]:text-lg [&_.icon]:text-icon [&_.iconfont]:text-icon [&_.lucide]:text-icon',
+        'hover:[&_.anticon]:text-primary/70 hover:[&_.icon]:text-primary/70 hover:[&_.iconfont]:text-primary/70 hover:[&_.lucide]:text-primary/70 hover:bg-primary/5 hover:shadow-[0_0_12px_-4px_var(--color-primary)]',
         active &&
-          '[&_.anticon]:text-primary! [&_.icon]:text-primary! [&_.iconfont]:text-primary! [&_.lucide]:text-primary!',
+          '[&_.anticon]:text-primary! [&_.icon]:text-primary! [&_.iconfont]:text-primary! [&_.lucide]:text-primary! bg-primary/8 shadow-[0_0_14px_-4px_var(--color-primary)]',
         className
       )}
       {...props}>

@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import http from 'node:http'
-import { arch } from 'node:os'
+import { arch, homedir } from 'node:os'
 import path from 'node:path'
 
 import type { TokenUsageData } from '@cherrystudio/analytics-client'
@@ -620,6 +620,7 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
   ipcMain.handle(IpcChannel.File_Mkdir, fileManager.mkdir.bind(fileManager))
   ipcMain.handle(IpcChannel.File_Write, fileManager.writeFile.bind(fileManager))
   ipcMain.handle(IpcChannel.File_WriteWithId, fileManager.writeFileWithId.bind(fileManager))
+  ipcMain.handle(IpcChannel.File_GetHomeDir, () => homedir())
   ipcMain.handle(IpcChannel.File_SaveImage, fileManager.saveImage.bind(fileManager))
   ipcMain.handle(IpcChannel.File_Base64Image, fileManager.base64Image.bind(fileManager))
   ipcMain.handle(IpcChannel.File_SaveBase64Image, fileManager.saveBase64Image.bind(fileManager))
@@ -870,7 +871,9 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
     const configPath = path.join(app.getPath('userData'), 'filelib_config.json')
     try {
       fs.writeFileSync(configPath, JSON.stringify({ path: libPath }))
-    } catch (e) { console.error('Failed to write filelib config:', e) }
+    } catch (e) {
+      console.error('Failed to write filelib config:', e)
+    }
   })
   ipcMain.handle(IpcChannel.App_InstallUvBinary, () => runInstallScript('install-uv.js'))
   ipcMain.handle(IpcChannel.App_InstallBunBinary, () => runInstallScript('install-bun.js'))
@@ -891,11 +894,15 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
           if (packageName) {
             try {
               const servers = await (await import('@main/apiServer/utils/mcp')).getMCPServersFromRedux()
-              const target = servers.find((s: any) => s.name === packageName || s.id?.includes(packageName.replace(/[^a-zA-Z0-9]/g, '_')))
+              const target = servers.find(
+                (s: any) => s.name === packageName || s.id?.includes(packageName.replace(/[^a-zA-Z0-9]/g, '_'))
+              )
               if (target) {
                 await mcpService.restartServer(null as any, target)
               }
-            } catch (e) { /* 静默失败，不影响主体功能 */ }
+            } catch (e) {
+              /* 静默失败，不影响主体功能 */
+            }
           }
         })
         child.on('error', (e: any) => {
@@ -1325,7 +1332,11 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
 
   // ── 记忆库 IPC（已注册则跳过，防止 registerIpc 重复调用） ──
   const safeHandle = (channel: string, handler: (...args: any[]) => unknown) => {
-    try { ipcMain.handle(channel, handler as any) } catch (_e) { /* 已注册，跳过 */ }
+    try {
+      ipcMain.handle(channel, handler as any)
+    } catch (_e) {
+      /* 已注册，跳过 */
+    }
   }
 
   const MEMORY_BANK_FILE = path.join(app.getPath('userData'), 'Data', 'memory_bank.json')
@@ -1339,11 +1350,14 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
       const memories = JSON.parse(raw) as any[]
       if (!query || !query.trim()) return memories.slice(0, 20)
       const kw = query.toLowerCase()
-      return memories.filter((m) =>
-        m.summary?.toLowerCase().includes(kw) ||
-        m.keywords?.some((k: string) => k.toLowerCase().includes(kw))
-      ).slice(0, 20)
-    } catch { return [] }
+      return memories
+        .filter(
+          (m) => m.summary?.toLowerCase().includes(kw) || m.keywords?.some((k: string) => k.toLowerCase().includes(kw))
+        )
+        .slice(0, 20)
+    } catch {
+      return []
+    }
   })
 
   safeHandle('memory:search-by-keywords', async (_event: any, keywords: string[]) => {
@@ -1355,6 +1369,8 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
         m.keywords?.some((k: string) => keywords.some((q) => k.toLowerCase().includes(q.toLowerCase())))
       )
       return matched.slice(0, 10)
-    } catch { return [] }
+    } catch {
+      return []
+    }
   })
 }

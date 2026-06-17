@@ -11,6 +11,7 @@ import { useSelector } from 'react-redux'
 import styled from 'styled-components'
 
 import Markdown from '../../Markdown/Markdown'
+import FormQuestion from './FormQuestion'
 
 interface Props {
   block: MainTextMessageBlock
@@ -39,6 +40,14 @@ const MainTextBlock: React.FC<Props> = ({ block, citationBlockId, role, mentions
     },
     [block.citationReferences, citationBlockId, rawCitations]
   )
+
+  // 检测是否有 <form_question> XML，优先渲染交互式表单
+  const content = block.content || ''
+  const isForm = content.trim().startsWith('<form_question')
+
+  if (isForm) {
+    return <FormQuestion content={content} />
+  }
 
   return (
     <>

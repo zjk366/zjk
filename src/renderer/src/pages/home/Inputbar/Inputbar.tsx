@@ -137,7 +137,13 @@ const Inputbar: FC<Props> = ({ assistant: initialAssistant, setActiveTopic, topi
   )
 }
 
-const InputbarInner: FC<InputbarInnerProps> = ({ assistant: initialAssistant, setActiveTopic, topic, actionsRef, droppedFiles }) => {
+const InputbarInner: FC<InputbarInnerProps> = ({
+  assistant: initialAssistant,
+  setActiveTopic,
+  topic,
+  actionsRef,
+  droppedFiles
+}) => {
   const scope = topic?.type ?? TopicType.Chat
   const config = getInputbarConfig(scope)
 
@@ -442,6 +448,19 @@ const InputbarInner: FC<InputbarInnerProps> = ({ assistant: initialAssistant, se
     mentionedModels,
     focusTextarea
   ])
+
+  // 监听 form-answer 事件（来自 FormQuestion 组件）
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail
+      if (typeof detail !== 'string' || !detail.trim()) return
+      const baseUserMessage: MessageInputBaseParams = { assistant, topic, content: detail }
+      const { message, blocks } = getUserMessage(baseUserMessage)
+      void dispatch(_sendMessage(message, blocks, assistant, topic.id))
+    }
+    window.addEventListener('form-answer', handler)
+    return () => window.removeEventListener('form-answer', handler)
+  }, [assistant, topic, dispatch])
 
   // TODO: Just use assistant.knowledge_bases as selectedKnowledgeBases. context state is overdesigned.
   useEffect(() => {

@@ -7,7 +7,7 @@
 import MemoryBankService from '@renderer/services/MemoryBankService'
 import type { Memory } from '@renderer/types/memory'
 import dayjs from 'dayjs'
-import { ArchiveRestore, ArrowLeft, Delete, RotateCcw, Search, Trash2, X, Trash as TrashIcon } from 'lucide-react'
+import { ArchiveRestore, ArrowLeft, Delete, RotateCcw, Search, Trash as TrashIcon, Trash2, X } from 'lucide-react'
 import type { FC } from 'react'
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -51,27 +51,36 @@ const MemoryPage: FC = () => {
     setMemories(results)
   }, [searchQuery, service, loadData])
 
-  const handleTrash = useCallback(async (id: string) => {
-    await service.trash(id)
-    loadData()
-  }, [service, loadData])
+  const handleTrash = useCallback(
+    async (id: string) => {
+      await service.trash(id)
+      loadData()
+    },
+    [service, loadData]
+  )
 
-  const handleRestore = useCallback(async (id: string) => {
-    await service.restore(id)
-    loadData()
-  }, [service, loadData])
+  const handleRestore = useCallback(
+    async (id: string) => {
+      await service.restore(id)
+      loadData()
+    },
+    [service, loadData]
+  )
 
-  const handleDeletePermanently = useCallback(async (id: string) => {
-    await service.permanentlyDelete(id)
-    loadData()
-  }, [service, loadData])
+  const handleDeletePermanently = useCallback(
+    async (id: string) => {
+      await service.permanentlyDelete(id)
+      loadData()
+    },
+    [service, loadData]
+  )
 
   const handleClearTrash = useCallback(async () => {
     if (trashed.length === 0) return
     const confirmed = await window.modal.confirm({
       title: '清空垃圾桶',
       content: `确定要永久删除垃圾桶中的所有记忆（共 ${trashed.length} 条）吗？此操作不可撤销。`,
-      centered: true,
+      centered: true
     })
     if (!confirmed) return
     const count = await service.clearTrash()
@@ -113,7 +122,12 @@ const MemoryPage: FC = () => {
             onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
           />
           {searchQuery ? (
-            <IconButton onClick={() => { setSearchQuery(''); loadData() }} title="清除">
+            <IconButton
+              onClick={() => {
+                setSearchQuery('')
+                loadData()
+              }}
+              title="清除">
               <X size={16} />
             </IconButton>
           ) : (
@@ -145,48 +159,40 @@ const MemoryPage: FC = () => {
                       </KeywordList>
                     )}
                   </CardMeta>
-                  <CardExpire>
-                    {mem.expiresAt && `过期: ${formatTime(mem.expiresAt)}`}
-                  </CardExpire>
+                  <CardExpire>{mem.expiresAt && `过期: ${formatTime(mem.expiresAt)}`}</CardExpire>
                 </CardBody>
                 <CardActions>
-                  <ActionBtn
-                    $danger
-                    onClick={() => handleTrash(mem.id)}
-                    title="移入垃圾桶"
-                  >
+                  <ActionBtn $danger onClick={() => handleTrash(mem.id)} title="移入垃圾桶">
                     <Delete size={15} />
                   </ActionBtn>
                 </CardActions>
               </MemoryCard>
             ))
           )
+        ) : trashed.length === 0 ? (
+          <EmptyState>垃圾桶为空</EmptyState>
         ) : (
-          trashed.length === 0 ? (
-            <EmptyState>垃圾桶为空</EmptyState>
-          ) : (
-            trashed.map((mem) => (
-              <MemoryCard key={mem.id}>
-                <CardBody>
-                  <CardSummary $deleted>{mem.summary}</CardSummary>
-                  <CardMeta>
-                    <span>📅 {formatTime(mem.createdAt)}</span>
-                    <span style={{ color: 'var(--color-text-3)' }}>
-                      删除于 {mem.deletedAt ? formatTime(mem.deletedAt) : ''}
-                    </span>
-                  </CardMeta>
-                </CardBody>
-                <CardActions>
-                  <ActionBtn onClick={() => handleRestore(mem.id)} title="恢复">
-                    <RotateCcw size={15} />
-                  </ActionBtn>
-                  <ActionBtn $danger onClick={() => handleDeletePermanently(mem.id)} title="永久删除">
-                    <ArchiveRestore size={15} />
-                  </ActionBtn>
-                </CardActions>
-              </MemoryCard>
-            ))
-          )
+          trashed.map((mem) => (
+            <MemoryCard key={mem.id}>
+              <CardBody>
+                <CardSummary $deleted>{mem.summary}</CardSummary>
+                <CardMeta>
+                  <span>📅 {formatTime(mem.createdAt)}</span>
+                  <span style={{ color: 'var(--color-text-3)' }}>
+                    删除于 {mem.deletedAt ? formatTime(mem.deletedAt) : ''}
+                  </span>
+                </CardMeta>
+              </CardBody>
+              <CardActions>
+                <ActionBtn onClick={() => handleRestore(mem.id)} title="恢复">
+                  <RotateCcw size={15} />
+                </ActionBtn>
+                <ActionBtn $danger onClick={() => handleDeletePermanently(mem.id)} title="永久删除">
+                  <ArchiveRestore size={15} />
+                </ActionBtn>
+              </CardActions>
+            </MemoryCard>
+          ))
         )}
       </ContentArea>
     </PageContainer>
@@ -328,11 +334,14 @@ const CardSummary = styled.div<{ $deleted?: boolean }>`
   font-size: 13px;
   color: ${(p) => (p.$deleted ? 'var(--color-text-3)' : 'var(--color-text)')};
   line-height: 1.5;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 60px;
+  overflow-y: auto;
   text-decoration: ${(p) => (p.$deleted ? 'line-through' : 'none')};
+
+  &::-webkit-scrollbar { width: 3px; }
+  &::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 2px; }
 `
 
 const CardMeta = styled.div`

@@ -2,19 +2,20 @@ import '@renderer/databases'
 
 import { loggerService } from '@logger'
 import store, { persistor } from '@renderer/store'
-import { useEffect } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { useEffect } from 'react'
 import { Provider } from 'react-redux'
 import { PersistGate } from 'redux-persist/integration/react'
 
+import { ClarifyCard } from './components/ClarifyCard'
 import TopViewContainer from './components/TopView'
 import AntdProvider from './context/AntdProvider'
 import { CodeStyleProvider } from './context/CodeStyleProvider'
 import { NotificationProvider } from './context/NotificationProvider'
 import StyleSheetManager from './context/StyleSheetManager'
 import { ThemeProvider } from './context/ThemeProvider'
-import MemoryBankService from './services/MemoryBankService'
 import Router from './Router'
+import MemoryBankService from './services/MemoryBankService'
 
 const logger = loggerService.withContext('App.tsx')
 
@@ -49,6 +50,7 @@ function App(): React.ReactElement {
                   <PersistGate loading={null} persistor={persistor}>
                     <TopViewContainer>
                       <Router />
+                      <ClarifyCard />
                     </TopViewContainer>
                   </PersistGate>
                 </CodeStyleProvider>

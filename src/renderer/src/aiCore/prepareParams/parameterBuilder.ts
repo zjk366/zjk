@@ -22,12 +22,12 @@ import {
   isSupportedThinkingTokenModel,
   isWebSearchModel
 } from '@renderer/config/models'
-import { getHubModeSystemPrompt } from '@renderer/config/prompts-code-mode'
+import { getFormQuestionPrompt } from '@renderer/config/prompts-code-mode'
 import { DEFAULT_ASSISTANT_SETTINGS, getDefaultModel } from '@renderer/services/AssistantService'
 import store from '@renderer/store'
 import type { CherryWebSearchConfig } from '@renderer/store/websearch'
 import type { Model } from '@renderer/types'
-import { type Assistant, getEffectiveMcpMode, type MCPTool, type Provider, SystemProviderIds } from '@renderer/types'
+import { type Assistant, type MCPTool, type Provider, SystemProviderIds } from '@renderer/types'
 import type { StreamTextParams } from '@renderer/types/aiCoreTypes'
 import { IdleTimeoutController, type IdleTimeoutHandle } from '@renderer/utils/IdleTimeoutController'
 import { replacePromptVariables } from '@renderer/utils/prompt'
@@ -228,11 +228,13 @@ export async function buildStreamTextParams(
 
   let systemPrompt = assistant.prompt ? await replacePromptVariables(assistant.prompt, model.name) : ''
 
-  if (getEffectiveMcpMode(assistant) !== 'disabled') {
-    const autoModePrompt = getHubModeSystemPrompt()
-    if (autoModePrompt) {
-      systemPrompt = systemPrompt ? `${systemPrompt}\n\n${autoModePrompt}` : autoModePrompt
-    }
+  // MCP 工具已通过 setupToolsConfig() 扁平化注入 params.tools，
+  // 模型通过原生 function calling 直接调用，无需 hub 元工具路由层。
+  // 详见 Hermes Agent 设计模式：所有工具平铺，纯语义匹配。
+
+  const formPrompt = getFormQuestionPrompt()
+  if (formPrompt) {
+    systemPrompt = systemPrompt ? `${systemPrompt}\n\n${formPrompt}` : formPrompt
   }
 
   if (systemPrompt) {

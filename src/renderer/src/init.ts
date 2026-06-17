@@ -6,7 +6,7 @@ import { startNutstoreAutoSync } from './services/NutstoreService'
 import storeSyncService from './services/StoreSyncService'
 import { webTraceService } from './services/WebTraceService'
 import store from './store'
-import { addMCPServer } from './store/mcp'
+import { installMcpPackage } from './store/mcp'
 
 loggerService.initWindowSource('mainWindow')
 
@@ -20,60 +20,20 @@ function initKeyv() {
  * and auto-register the installed package in Skills management room
  */
 function initMcpInstallListener() {
-  window.electron?.ipcRenderer?.on('mcp:package-installed', async (_event, data: {
-    packageName: string
-    serverId: string
-    description: string
-  }) => {
-    const { packageName, serverId, description } = data
-
-    // 1. Add to Redux store if not already present
-    const state = store.getState()
-    const exists = state.mcp.servers.some((s) => s.name === packageName || s.id === serverId)
-    if (!exists) {
-      store.dispatch(addMCPServer({
-        id: serverId,
-        name: packageName,
-        description,
-        command: 'npx',
-        args: ['-y', packageName],
-        isActive: true,
-        type: 'stdio',
-        installSource: 'manual',
-        isTrusted: true,
-        installedAt: Date.now()
-      }))
-    }
-
-    // 2. Register in Skills management room
-    try {
-      const { default: SkillsService } = await import('./services/SkillsService')
-      await SkillsService.getInstance().register({
-        id: `mcp_${serverId}`,
-        name: packageName,
-        description,
-        plainDescription: `${packageName} - 通过 AI 自动安装的 MCP 服务`,
-        source: 'MCP 自动安装',
-        isEnabled: true,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        tags: ['MCP', '自动安装'],
-      })
-      loggerService.withContext('init').info(`MCP package registered in Skills: ${packageName}`)
-    } catch (err) {
-      // Skills registration failure is non-critical
-    }
-
-    // 3. Try to restart the server to connect to Hub
-    try {
-      const restartServer = (window as any).api?.mcp?.restartServer
-      if (typeof restartServer === 'function') {
-        await restartServer({ id: serverId, name: packageName })
+  window.electron?.ipcRenderer?.on(
+    'mcp:package-installed',
+    async (
+      _event,
+      data: {
+        packageName: string
+        description: string
       }
-    } catch {
-      // Server restart failure is non-critical
+    ) => {
+      const { packageName, description } = data
+      // installMcpPackage 处理全套流程：添加 Redux store + 弹出终端窗口 + 连接 Hub + 注册 Skills
+      installMcpPackage(packageName, description)
     }
-  })
+  )
 }
 
 function initAutoSync() {

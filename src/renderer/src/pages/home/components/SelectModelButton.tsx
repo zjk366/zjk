@@ -5,10 +5,10 @@ import { useAssistant } from '@renderer/hooks/useAssistant'
 import { useAllProviders, useProviders } from '@renderer/hooks/useProvider'
 import { getProviderName } from '@renderer/services/ProviderService'
 import type { Assistant, Model, Provider } from '@renderer/types'
-import { Button, Dropdown, Tag } from 'antd'
 import type { MenuProps } from 'antd'
-import { Check, ChevronsUpDown } from 'lucide-react'
+import { Button, Dropdown, Tag } from 'antd'
 import { sortBy } from 'lodash'
+import { Check, ChevronsUpDown } from 'lucide-react'
 import type { FC } from 'react'
 import { useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -112,14 +112,19 @@ const SelectModelButton: FC<Props> = ({ assistant, compact }) => {
 }
 
 const DropdownButton = styled(Button)<{ $compact?: boolean }>`
-  font-size: 11px;
-  border-radius: 15px;
-  padding: ${(props) => (props.$compact ? '2px 8px' : '13px 5px')};
+  font-size: 10px;
+  border-radius: 12px;
+  padding: ${(props) => (props.$compact ? '1px 7px' : '13px 5px')};
   -webkit-app-region: none;
   box-shadow: none;
   background-color: transparent;
-  border: 1px solid transparent;
+  border: 0.5px solid transparent;
   margin-top: 1px;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  &:hover {
+    border-color: color-mix(in srgb, var(--color-primary) 20%, transparent);
+    background-color: color-mix(in srgb, var(--color-primary) 4%, transparent);
+  }
 `
 
 const ButtonContent = styled.div`

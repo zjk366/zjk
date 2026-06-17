@@ -5656,6 +5656,7 @@
       "zip": "ZIP"
     },
     "theme": {
+      "blackhole": "Blackhole",
       "color_primary": "主题颜色",
       "dark": "深色",
       "light": "浅色",

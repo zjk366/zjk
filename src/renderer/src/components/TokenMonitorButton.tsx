@@ -10,7 +10,7 @@ import { EVENT_NAMES, EventEmitter } from '@renderer/services/EventService'
 import type { RootState } from '@renderer/store'
 import { useAppSelector } from '@renderer/store'
 import { Popover, Tooltip } from 'antd'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import styled from 'styled-components'
 
 const logger = loggerService.withContext('TokenMonitor')
@@ -18,7 +18,7 @@ const logger = loggerService.withContext('TokenMonitor')
 // ─── 类型定义 ────────────────────────────────────────
 
 interface DayRecord {
-  date: string       // "2026-06-07"
+  date: string // "2026-06-07"
   prompt: number
   completion: number
   cost: number
@@ -30,22 +30,24 @@ interface TokenStats {
   month: { prompt: number; completion: number; cost: number }
 }
 
-// ─── localStorage 管理 ─────────────────────────────────
+// ─── localStorage 管理（按模型 ID 分表）─────────────────
 
-const STORAGE_KEY = 'token_monitor_history'
+function storageKey(modelId: string): string {
+  return `token_monitor_history_${modelId.replace(/[^a-zA-Z0-9_-]/g, '_')}`
+}
 
-function loadRecords(): DayRecord[] {
+function loadRecords(modelId: string): DayRecord[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    const raw = localStorage.getItem(storageKey(modelId))
     return raw ? (JSON.parse(raw) as DayRecord[]) : []
   } catch {
     return []
   }
 }
 
-function saveRecords(records: DayRecord[]) {
+function saveRecords(modelId: string, records: DayRecord[]) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(records))
+    localStorage.setItem(storageKey(modelId), JSON.stringify(records))
   } catch {
     // localStorage 满了忽略
   }
@@ -59,7 +61,7 @@ function todayStr(): string {
 function weekStartStr(): string {
   const d = new Date()
   const day = d.getDay()
-  const diff = (day === 0 ? 6 : day - 1) // 周日算第6天
+  const diff = day === 0 ? 6 : day - 1 // 周日算第6天
   d.setDate(d.getDate() - diff)
   return d.toISOString().slice(0, 10)
 }
@@ -117,12 +119,23 @@ const TokenMonitorButton: React.FC = () => {
   const assistant = useMemo(() => assistants[0] || null, [assistants])
   const model = assistant?.model || null
 
-  const [records, setRecords] = useState<DayRecord[]>(() => loadRecords())
-  const mountedRef = useRef(false)
+  const modelId = model?.id || ''
+  const [records, setRecords] = useState<DayRecord[]>(() => loadRecords(modelId))
 
-  // 监听消息完成事件，自动累计 token
+  // 模型切换时重新加载对应模型的用量记录
   useEffect(() => {
-    const handler = (event: { usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } }) => {
+    setRecords(loadRecords(modelId))
+    if (modelId) {
+      logger.info(`Token monitor switched to model: ${model?.name || modelId}`)
+    }
+  }, [modelId, model?.name])
+
+  // 监听消息完成事件，自动累计 token（按当前模型独立存储）
+  useEffect(() => {
+    if (!modelId) return
+    const handler = (event: {
+      usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number }
+    }) => {
       const usage = event?.usage
       if (!usage) return
 
@@ -155,7 +168,7 @@ const TokenMonitorButton: React.FC = () => {
         cutoff.setDate(cutoff.getDate() - 90)
         const cutoffStr = cutoff.toISOString().slice(0, 10)
         const filtered = next.filter((r) => r.date >= cutoffStr)
-        saveRecords(filtered)
+        saveRecords(modelId, filtered)
         return filtered
       })
     }
@@ -168,21 +181,14 @@ const TokenMonitorButton: React.FC = () => {
         ;(unsubscribe as Promise<() => void>).then((fn) => fn())
       }
     }
-  }, [model])
-
-  // 模型切换时打印日志
-  useEffect(() => {
-    if (mountedRef.current && model) {
-      logger.info(`Model switched to: ${model.name} (${model.id})`)
-    }
-    mountedRef.current = true
-  }, [model?.id])
+  }, [modelId])
 
   const stats = useMemo(() => computeStats(records), [records])
   const currency = model?.pricing?.currencySymbol || '$'
 
   // 模型是否配置了定价
-  const hasPricing = model?.pricing && (model.pricing.input_per_million_tokens > 0 || model.pricing.output_per_million_tokens > 0)
+  const hasPricing =
+    model?.pricing && (model.pricing.input_per_million_tokens > 0 || model.pricing.output_per_million_tokens > 0)
 
   const popoverContent = (
     <PopoverContent>
