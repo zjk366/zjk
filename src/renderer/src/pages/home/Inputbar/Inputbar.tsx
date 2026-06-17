@@ -450,12 +450,15 @@ const InputbarInner: FC<InputbarInnerProps> = ({
   ])
 
   // 监听 form-answer 事件（来自 FormQuestion 组件）
+  // 创建 system 角色消息（不在聊天中渲染，作为 AI 上下文，确保对话继续）
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail
       if (typeof detail !== 'string' || !detail.trim()) return
       const baseUserMessage: MessageInputBaseParams = { assistant, topic, content: detail }
       const { message, blocks } = getUserMessage(baseUserMessage)
+      // 覆盖为用户可见的 system 角色，computeDisplayMessages 会过滤隐藏
+      message.role = 'system'
       void dispatch(_sendMessage(message, blocks, assistant, topic.id))
     }
     window.addEventListener('form-answer', handler)

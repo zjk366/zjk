@@ -11,9 +11,6 @@ export type InputBarToolType =
   | 'generate_image'
   | 'mention_models'
   | 'quick_phrases'
-  | 'clear_topic'
-  | 'toggle_expand'
-  | 'new_context'
   // Agent Session tools
   | 'create_session'
   | 'slash_commands'

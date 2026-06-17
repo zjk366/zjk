@@ -13,9 +13,41 @@ import { type Tool, type ToolSet } from 'ai'
 import { jsonSchema, tool } from 'ai'
 import type { JSONSchema7 } from 'json-schema'
 
-import { waitForUserChoice } from './clarify'
+import { type ClarifyParams, waitForUserChoice } from './clarify'
 
 const logger = loggerService.withContext('MCP-utils')
+
+// write_code_file 创建的脚本文件路径列表
+// 所有脚本都是中间产物，执行完毕后自动清理
+const allWrittenPaths: string[] = []
+
+/** 删除一个文件（静默失败） */
+async function deleteFileSafely(path: string) {
+  try {
+    await window.api.file.deleteExternalFile(path)
+  } catch {
+    /* 文件可能已被删除 */
+  }
+}
+
+/** 清理所有 tracked 的旧脚本文件 */
+async function cleanupOldScripts() {
+  for (const oldPath of allWrittenPaths) {
+    await deleteFileSafely(oldPath)
+  }
+  allWrittenPaths.length = 0
+}
+
+/** 写入后延迟删除（双保险：防止没有下一次写入时文件残留） */
+function scheduleCleanup(path: string, delayMs = 180_000) {
+  setTimeout(async () => {
+    const idx = allWrittenPaths.indexOf(path)
+    if (idx >= 0) {
+      allWrittenPaths.splice(idx, 1)
+      await deleteFileSafely(path)
+    }
+  }, delayMs)
+}
 
 // Setup tools configuration based on provided parameters
 export function setupToolsConfig(
@@ -47,6 +79,12 @@ export function setupToolsConfig(
         allowFreeText: {
           type: 'boolean',
           description: '是否允许用户自由输入。默认 true（有 choices 时也允许自由输入）。'
+        },
+        mode: {
+          type: 'string',
+          enum: ['single', 'multiple', 'input'],
+          description:
+            '选择模式：single=单选用Radio，multiple=多选用Checkbox，input=仅输入框。默认根据choices和allowFreeText自动决定。'
         }
       },
       required: ['question']
@@ -55,84 +93,66 @@ export function setupToolsConfig(
       const question = String(params.question || '')
       const choices = (params.choices as string[]) || []
       const allowFreeText = params.allowFreeText !== false
+      const mode = (params.mode as string) || (choices.length > 0 ? 'single' : 'input')
 
-      logger.info(`[Clarify] ask_user: ${question} (choices: ${choices.length})`)
+      logger.info(`[Clarify] ask_user: ${question} (mode=${mode}, choices=${choices.length})`)
 
       // 挂起当前推理，等待用户选择
-      return await waitForUserChoice(toolCallId, { question, choices, allowFreeText })
+      return await waitForUserChoice(toolCallId, {
+        question,
+        choices,
+        allowFreeText,
+        mode: mode as ClarifyParams['mode']
+      })
     }
   })
 
   // write_code_file — 直接写入代码/脚本文件，避免终端 echo 的 shell 转义问题
   // 用于创建 Python/JS/PowerShell 等脚本，写入后由 terminal 执行。
+  // 临时文件自清理：每次写入新文件前，自动删除上一次的临时文件。
   tools['write_code_file'] = tool({
     description:
       '直接写入代码文件到磁盘（避免终端 echo 的 shell 转义问题）。' +
       '当需要创建 Python/JS/Shell 等脚本时使用此工具替代 terminal echo 写入。' +
       '写入后请用 terminal 执行。' +
       '用户指定了保存位置时传绝对路径（如 C:\\Users\\xxx\\Documents\\script.py）；' +
-      '用户未指定位置时不传 file_path，文件自动存入文件库。',
+      '用户未指定位置时不传 file_path，文件自动存入临时目录，历史临时文件自动清理。',
     inputSchema: jsonSchema({
       type: 'object',
       properties: {
-        file_path: { type: 'string', description: '（可选）用户指定的保存路径，绝对路径。不传则自动存入文件库。' },
+        file_path: { type: 'string', description: '（可选）用户指定的保存路径，绝对路径。不传则自动存入临时目录。' },
         content: { type: 'string', description: '文件内容，直接原样写入，无需转义' }
       },
       required: ['content']
     } as any),
     execute: async ({ file_path, content }: { file_path?: string; content: string }) => {
       try {
-        const libPath = localStorage.getItem('filelib_path')
+        // 清理上一次的脚本文件（中间产物不留痕迹）
+        await cleanupOldScripts()
+
+        let targetPath: string
 
         if (file_path) {
-          // 用户指定了路径 → 写入指定位置 + 备份到文件库
           const isAbsolute =
             file_path.startsWith('/') || /^[a-zA-Z]:\\/.test(file_path) || /^[a-zA-Z]:\//.test(file_path)
-          const fullPath = isAbsolute
+          targetPath = isAbsolute
             ? file_path
             : [await window.api.file.getHomeDir(), file_path].join('/').replace(/\\/g, '/')
 
-          const parentDir = fullPath.substring(0, Math.max(fullPath.lastIndexOf('/'), fullPath.lastIndexOf('\\')))
+          const parentDir = targetPath.substring(0, Math.max(targetPath.lastIndexOf('/'), targetPath.lastIndexOf('\\')))
           if (parentDir) await window.api.file.mkdir(parentDir).catch(() => {})
-
-          await window.api.file.write(fullPath, content)
-
-          // 备份到文件库
-          if (libPath) {
-            try {
-              const dateStr = new Date().toISOString().slice(0, 7)
-              const libDir = `${libPath.replace(/\\/g, '/')}/files/${dateStr}`
-              const fileName = fullPath.split('/').pop() || fullPath.split('\\').pop() || `file_${Date.now()}`
-              await window.api.file.mkdir(libDir).catch(() => {})
-              await window.api.file.write(`${libDir}/${fileName}`, content)
-            } catch {
-              /* ok */
-            }
-          }
-
-          logger.info(`[write_code_file] Written to ${fullPath}`)
-          return `文件已写入: ${fullPath}\n\n请使用 terminal 执行此脚本。`
+        } else {
+          targetPath = await window.api.file.createTempFile(`script_${Date.now()}.py`)
         }
 
-        // 用户没指定路径 → 写入临时目录（由系统自动清理），同时备份到文件库
-        const tempPath = await window.api.file.createTempFile(`script_${Date.now()}.py`)
-        await window.api.file.write(tempPath, content)
+        await window.api.file.write(targetPath, content)
+        allWrittenPaths.push(targetPath)
 
-        // 备份到文件库
-        if (libPath) {
-          try {
-            const dateStr = new Date().toISOString().slice(0, 7)
-            const libDir = `${libPath.replace(/\\/g, '/')}/files/${dateStr}`
-            await window.api.file.mkdir(libDir).catch(() => {})
-            const backupName = `script_${Date.now()}.py`
-            await window.api.file.write(`${libDir}/${backupName}`, content)
-          } catch {
-            /* ok */
-          }
-        }
+        // 3分钟后自动删除（双保险：即使没有下一次写入，文件也不会残留）
+        scheduleCleanup(targetPath)
 
-        logger.info(`[write_code_file] Written to temp: ${tempPath}`)
-        return `脚本已写入临时目录: ${tempPath}\n\n执行完毕后自动清理。请使用 terminal 执行此脚本。`
+        logger.info(`[write_code_file] Written to ${targetPath}`)
+        return `文件已写入: ${targetPath}\n\n请使用 terminal 执行此脚本。`
       } catch (err: any) {
         return `写入失败: ${err?.message || '未知错误'}`
       }

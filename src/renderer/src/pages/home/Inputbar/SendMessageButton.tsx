@@ -28,24 +28,27 @@ const SendMessageButton: FC<Props> = ({ disabled, sendMessage }) => {
       style={{
         cursor: disabled ? 'not-allowed' : 'pointer',
         color: disabled ? 'var(--color-text-3)' : 'var(--color-primary)',
-        fontSize: 20,
-        transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+        fontSize: disabled ? 20 : 21,
+        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
         marginTop: 0,
         marginRight: 2,
         opacity: disabled ? 0.3 : 1,
-        filter: disabled ? 'none' : 'drop-shadow(0 0 6px color-mix(in srgb, var(--color-primary) 40%, transparent))',
+        filter: disabled
+          ? 'none'
+          : 'drop-shadow(0 0 8px var(--color-primary)) drop-shadow(0 0 24px color-mix(in srgb, var(--color-primary) 30%, transparent))',
         transform: disabled ? 'scale(0.95)' : 'scale(1)'
       }}
       onMouseEnter={(e) => {
         if (!disabled) {
-          e.currentTarget.style.filter = 'drop-shadow(0 0 10px var(--color-primary))'
-          e.currentTarget.style.transform = 'scale(1.1)'
+          e.currentTarget.style.filter =
+            'drop-shadow(0 0 12px var(--color-primary)) drop-shadow(0 0 36px color-mix(in srgb, var(--color-primary) 40%, transparent))'
+          e.currentTarget.style.transform = 'scale(1.15)'
         }
       }}
       onMouseLeave={(e) => {
         if (!disabled) {
           e.currentTarget.style.filter =
-            'drop-shadow(0 0 6px color-mix(in srgb, var(--color-primary) 40%, transparent))'
+            'drop-shadow(0 0 8px var(--color-primary)) drop-shadow(0 0 24px color-mix(in srgb, var(--color-primary) 30%, transparent))'
           e.currentTarget.style.transform = 'scale(1)'
         }
       }}

@@ -83,3 +83,31 @@ body.blackhole-theme[navbar-position='left'] {
   --color-list-item: rgba(255, 255, 255, 0.1);
   --color-list-item-hover: rgba(255, 255, 255, 0.06);
 }
+
+/* ============================================================
+   Inputbar - Blackhole Cosmic Enhancement
+   Gravitational lensing glow, accretion disk focus state
+   ============================================================ */
+
+/* Inputbar container - event horizon edge */
+body.blackhole-theme .inputbar-container {
+  border-color: rgba(59, 130, 246, 0.08) !important;
+  background: rgba(13, 17, 23, 0.7) !important;
+}
+
+/* Inputbar focus - accretion disk forming */
+body.blackhole-theme .inputbar-container:focus-within {
+  border-color: color-mix(in srgb, var(--color-primary) 30%, transparent) !important;
+  box-shadow:
+    0 0 32px -8px color-mix(in srgb, var(--color-primary) 18%, transparent),
+    0 0 64px -24px color-mix(in srgb, var(--color-primary) 10%, transparent),
+    inset 0 0 16px -10px color-mix(in srgb, var(--color-primary) 8%, transparent) !important;
+}
+
+/* Send button active state - singularity pulse */
+body.blackhole-theme .iconfont.icon-ic_send[aria-disabled='false']:hover {
+  text-shadow:
+    0 0 12px var(--color-primary),
+    0 0 30px color-mix(in srgb, var(--color-primary) 40%, transparent),
+    0 0 60px color-mix(in srgb, var(--color-primary) 20%, transparent) !important;
+}

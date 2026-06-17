@@ -2,7 +2,6 @@ import '@renderer/pages/home/Inputbar/tools'
 
 import type { DropResult } from '@hello-pangea/dnd'
 import { DragDropContext, Draggable, Droppable } from '@hello-pangea/dnd'
-import { ActionIconButton } from '@renderer/components/Buttons'
 import type { QuickPanelListItem, QuickPanelReservedSymbol } from '@renderer/components/QuickPanel'
 import { useQuickPanel } from '@renderer/components/QuickPanel'
 import { useInputbarTools } from '@renderer/pages/home/Inputbar/context/InputbarToolsProvider'
@@ -20,14 +19,12 @@ import type {
 } from '@renderer/pages/home/Inputbar/types'
 import { getToolsForScope } from '@renderer/pages/home/Inputbar/types'
 import { useAppDispatch, useAppSelector } from '@renderer/store'
-import { selectToolOrderForScope, setIsCollapsed, setToolOrder } from '@renderer/store/inputTools'
-import { useSettings } from '@renderer/hooks/useSettings'
+import { selectToolOrderForScope, setToolOrder } from '@renderer/store/inputTools'
 import type { Assistant, Model } from '@renderer/types'
 import type { InputBarToolType } from '@renderer/types/chat'
-import { classNames } from '@renderer/utils'
-import { Divider, Dropdown } from 'antd'
+import { Dropdown } from 'antd'
 import type { ItemType } from 'antd/es/menu/interface'
-import { Check, CircleChevronRight } from 'lucide-react'
+import { Check } from 'lucide-react'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
@@ -78,22 +75,6 @@ const InputbarTools = ({ scope, assistant, model, session }: InputbarToolsNewPro
 
   const reduxToolOrder = useAppSelector((state) => selectToolOrderForScope(state, scope))
   const [targetTool, setTargetTool] = useState<ToolConfig | null>(null)
-
-  const isCollapse = useAppSelector((state) => state.inputTools.isCollapsed)
-  const { narrowMode } = useSettings()
-
-  // 组件挂载时修正折叠状态：有侧边栏时折叠，无侧边栏时展开
-  // 防止 Redux persist 中残留的展开状态导致工具重叠
-  useEffect(() => {
-    dispatch(setIsCollapsed(narrowMode ? false : true))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  // 点击隐藏侧边栏时自动展开底部折叠的工具；恢复侧边栏时自动折叠
-  useEffect(() => {
-    dispatch(setIsCollapsed(narrowMode ? false : true))
-  }, [narrowMode, dispatch])
-
   // Get tools for current scope
   const availableTools = useMemo(() => {
     return getToolsForScope(scope, { assistant, model, session })
@@ -235,14 +216,6 @@ const InputbarTools = ({ scope, assistant, model, session }: InputbarToolsNewPro
       .filter(Boolean) as ToolConfig[]
   }, [toolMetadata, toolOrder.hidden])
 
-  const showDivider = useMemo(() => {
-    return hiddenTools.length > 0 && visibleTools.length > 0
-  }, [hiddenTools, visibleTools])
-
-  const showCollapseButton = useMemo(() => {
-    return hiddenTools.length > 0
-  }, [hiddenTools])
-
   const toggleToolVisibility = useCallback(
     (toolKey: InputBarToolType, isVisible: boolean | undefined) => {
       const newToolOrder: ToolOrderConfig = {
@@ -371,8 +344,6 @@ const InputbarTools = ({ scope, assistant, model, session }: InputbarToolsNewPro
               )}
             </Droppable>
 
-            {showDivider && <Divider type="vertical" style={{ margin: '0 4px' }} />}
-
             <Droppable droppableId="inputbar-tools-hidden" direction="horizontal">
               {(provided) => (
                 <HiddenTools ref={provided.innerRef} {...provided.droppableProps}>
@@ -384,7 +355,6 @@ const InputbarTools = ({ scope, assistant, model, session }: InputbarToolsNewPro
                           <DraggablePortal isDragging={snapshot.isDragging}>
                             <ToolWrapper
                               data-key={toolConfig.key}
-                              className={classNames({ 'is-collapsed': isCollapse })}
                               onContextMenu={() => setTargetTool(toolConfig)}
                               ref={provided.innerRef}
                               {...provided.draggableProps}
@@ -405,14 +375,6 @@ const InputbarTools = ({ scope, assistant, model, session }: InputbarToolsNewPro
               )}
             </Droppable>
           </DragDropContext>
-
-          {showCollapseButton && (
-            <ActionIconButton
-              onClick={() => dispatch(setIsCollapsed(!isCollapse))}
-              title={isCollapse ? t('chat.input.tools.expand') : t('chat.input.tools.collapse')}>
-              <CircleChevronRight size={18} style={{ transform: isCollapse ? 'scaleX(1)' : 'scaleX(-1)' }} />
-            </ActionIconButton>
-          )}
         </ToolsContainer>
       </Dropdown>
       {managerElements}
@@ -456,16 +418,6 @@ const HiddenTools = styled.div`
 const ToolWrapper = styled.div`
   width: 30px;
   margin-right: 6px;
-  transition:
-    width 0.2s,
-    margin-right 0.2s,
-    opacity 0.2s;
-  &.is-collapsed {
-    width: 0px;
-    margin-right: 0px;
-    overflow: hidden;
-    opacity: 0;
-  }
 `
 
 export default InputbarTools

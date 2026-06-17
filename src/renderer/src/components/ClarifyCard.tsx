@@ -3,14 +3,24 @@
  *
  * 监听 'clarify-ask' 事件，渲染带选项的卡片，
  * 用户选择后通过 ClarifyProvider.resolveChoice 恢复模型推理。
+ *
+ * 三种选择模式：
+ * - single：单选（Radio），默认预选第一项
+ * - multiple：多选（Checkbox），可勾选多项
+ * - input：仅输入框
+ *
+ * 两种展示模式：
+ * - modal（默认）：全屏遮罩弹窗
+ * - inline：浮动在输入框上方
  */
 import { loggerService } from '@logger'
 import { type ClarifyParams, rejectChoice, resolveChoice } from '@renderer/aiCore/utils/clarify'
-import { Button, Input, Radio } from 'antd'
+import { Button, Checkbox, Input, Radio } from 'antd'
 import { HelpCircle, Send, X } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { AnimatePresence, motion } from 'motion/react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import styled from 'styled-components'
+import styled, { css } from 'styled-components'
 
 const logger = loggerService.withContext('ClarifyCard')
 
@@ -19,15 +29,33 @@ interface ClarifyRequest {
   question: string
   choices?: string[]
   allowFreeText?: boolean
+  mode?: 'single' | 'multiple' | 'input'
 }
 
-export function ClarifyCard() {
+interface ClarifyCardProps {
+  inline?: boolean
+}
+
+export function ClarifyCard({ inline = false }: ClarifyCardProps) {
   const { t } = useTranslation()
   const [request, setRequest] = useState<ClarifyRequest | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
+  const [multiSelected, setMultiSelected] = useState<string[]>([])
   const [textInput, setTextInput] = useState('')
   const [submitted, setSubmitted] = useState(false)
   const cardRef = useRef<HTMLDivElement>(null)
+
+  // 有效模式：优先取 mode 参数，fallback 根据是否有 choices 决定
+  const effectiveMode = useMemo<'single' | 'multiple' | 'input'>(() => {
+    if (request?.mode) return request.mode
+    if (request?.choices?.length) return 'single'
+    return 'input'
+  }, [request])
+
+  const hasChoices = request?.choices && request.choices.length > 0
+  const isSingle = effectiveMode === 'single'
+  const isMultiple = effectiveMode === 'multiple'
+  const isInput = effectiveMode === 'input'
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -37,9 +65,12 @@ export function ClarifyCard() {
         toolCallId: detail.toolCallId,
         question: detail.question,
         choices: detail.choices,
-        allowFreeText: detail.allowFreeText
+        allowFreeText: detail.allowFreeText,
+        mode: detail.mode
       })
-      setSelected(null)
+      // Single: 默认预选第一个；Multiple: 全部不选；Input: 无选中
+      setSelected(detail.mode === 'multiple' ? null : detail.choices?.[0] || null)
+      setMultiSelected([])
       setTextInput('')
       setSubmitted(false)
     }
@@ -50,17 +81,23 @@ export function ClarifyCard() {
   const handleSubmit = useCallback(() => {
     if (!request || submitted) return
 
-    const answer = selected || textInput.trim()
+    let answer: string | null = null
+    if (isMultiple) {
+      answer = multiSelected.length > 0 ? multiSelected.join(', ') : null
+    } else if (isInput) {
+      answer = textInput.trim() || null
+    } else {
+      answer = selected || textInput.trim() || null
+    }
     if (!answer) return
 
     setSubmitted(true)
     const success = resolveChoice(request.toolCallId, answer)
     if (success) {
       logger.info('[ClarifyCard] Choice resolved:', answer)
-      // 短暂延迟后关闭卡片，让用户看到提交成功
       setTimeout(() => setRequest(null), 800)
     }
-  }, [request, submitted, selected, textInput])
+  }, [request, submitted, selected, multiSelected, textInput, isMultiple, isInput])
 
   const handleDismiss = useCallback(() => {
     if (!request) return
@@ -68,7 +105,6 @@ export function ClarifyCard() {
     setRequest(null)
   }, [request])
 
-  // 键盘快捷键：Enter 提交
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === 'Enter' && !e.shiftKey) {
@@ -82,104 +118,149 @@ export function ClarifyCard() {
     [handleSubmit, handleDismiss]
   )
 
-  if (!request) return null
+  // ==================== Can Submit ====================
 
-  const hasChoices = request.choices && request.choices.length > 0
-  const canSubmit = selected || textInput.trim()
+  const canSubmit = useMemo(() => {
+    if (isMultiple) return multiSelected.length > 0
+    if (isInput) return textInput.trim().length > 0
+    return !!(selected || textInput.trim())
+  }, [isMultiple, isInput, selected, multiSelected, textInput])
 
-  return (
-    <Overlay onClick={handleDismiss}>
-      <Card ref={cardRef} onClick={(e) => e.stopPropagation()} onKeyDown={handleKeyDown}>
-        <CardHeader>
-          <HeaderLeft>
-            <HelpCircle size={18} />
-            <HeaderTitle>需要你确认</HeaderTitle>
-          </HeaderLeft>
-          <CloseButton onClick={handleDismiss}>
-            <X size={16} />
-          </CloseButton>
-        </CardHeader>
+  // ==================== Shared Card Content ====================
 
-        <QuestionText>{request.question}</QuestionText>
+  const cardContent = request ? (
+    <>
+      <CardHeader>
+        <HeaderLeft>
+          <HelpCircle size={16} />
+          <HeaderTitle>需要你确认</HeaderTitle>
+        </HeaderLeft>
+        <CloseButton onClick={handleDismiss}>
+          <X size={14} />
+        </CloseButton>
+      </CardHeader>
+      <QuestionText>{request.question}</QuestionText>
 
-        {hasChoices && (
-          <ChoicesList>
-            <Radio.Group
-              value={selected}
-              onChange={(e) => {
-                setSelected(e.target.value)
-                setTextInput('')
-              }}
-              className="w-full">
-              {request.choices!.map((choice) => (
-                <ChoiceItem key={choice} $selected={selected === choice}>
-                  <Radio value={choice}>{choice}</Radio>
-                </ChoiceItem>
-              ))}
-            </Radio.Group>
-          </ChoicesList>
-        )}
+      {/* ===== Single Mode: Radio ===== */}
+      {isSingle && hasChoices && (
+        <ChoicesList>
+          <Radio.Group
+            value={selected}
+            onChange={(e) => {
+              setSelected(e.target.value)
+              setTextInput('')
+            }}
+            className="w-full">
+            {request.choices!.map((choice) => (
+              <ChoiceItem key={choice} $selected={selected === choice}>
+                <Radio value={choice}>{choice}</Radio>
+              </ChoiceItem>
+            ))}
+          </Radio.Group>
+        </ChoicesList>
+      )}
 
-        {request.allowFreeText && (
+      {/* ===== Multiple Mode: Checkbox ===== */}
+      {isMultiple && hasChoices && (
+        <ChoicesList>
+          {request.choices!.map((choice) => {
+            const checked = multiSelected.includes(choice)
+            return (
+              <MultiChoiceItem
+                key={choice}
+                $selected={checked}
+                onClick={() => {
+                  setMultiSelected((prev) => (checked ? prev.filter((c) => c !== choice) : [...prev, choice]))
+                }}>
+                <Checkbox checked={checked}>{choice}</Checkbox>
+              </MultiChoiceItem>
+            )
+          })}
+        </ChoicesList>
+      )}
+
+      {/* ===== Free Text Input ===== */}
+      {request.allowFreeText && !isMultiple && (
+        <CustomInputArea>
+          {isSingle && hasChoices && <CustomInputLabel>或自定义输入</CustomInputLabel>}
           <Input
-            placeholder={hasChoices ? '或者直接输入...' : '请输入...'}
+            placeholder={isInput ? '请输入...' : '输入你的想法...'}
             value={textInput}
             onChange={(e) => {
               setTextInput(e.target.value)
-              if (e.target.value) setSelected(null)
+              if (e.target.value && isSingle) setSelected(null)
             }}
             onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSubmit()}
-            autoFocus={!hasChoices}
+            autoFocus={isInput}
           />
-        )}
+        </CustomInputArea>
+      )}
 
-        <CardFooter>
-          <Button disabled={!canSubmit || submitted} type="primary" onClick={handleSubmit} icon={<Send size={14} />}>
-            {submitted ? '已提交' : '确认'}
-          </Button>
-        </CardFooter>
-      </Card>
-    </Overlay>
+      <CardFooter>
+        <Button
+          disabled={!canSubmit || submitted}
+          type="primary"
+          onClick={handleSubmit}
+          icon={<Send size={13} />}
+          size="small">
+          {submitted ? '已提交' : '确认'}
+        </Button>
+      </CardFooter>
+    </>
+  ) : null
+
+  // ==================== Inline Mode ====================
+
+  if (inline) {
+    return (
+      <AnimatePresence>
+        {request && (
+          <motion.div
+            initial={{ opacity: 0, y: 12, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 12, scale: 0.97 }}
+            transition={{ duration: 0.2, ease: 'easeOut' }}
+            style={{
+              position: 'absolute',
+              bottom: 'calc(100% + 8px)',
+              left: 16,
+              right: 16,
+              zIndex: 50
+            }}>
+            <InlineCard ref={cardRef} onKeyDown={handleKeyDown}>
+              {cardContent}
+            </InlineCard>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    )
+  }
+
+  // ==================== Modal Mode ====================
+
+  return (
+    <AnimatePresence>
+      {request && (
+        <Overlay onClick={handleDismiss}>
+          <ModalCard
+            ref={cardRef}
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={handleKeyDown}
+            initial={{ opacity: 0, y: 12, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 12, scale: 0.97 }}
+            transition={{ duration: 0.2, ease: 'easeOut' }}>
+            {cardContent}
+          </ModalCard>
+        </Overlay>
+      )}
+    </AnimatePresence>
   )
 }
 
 // ==================== Styled Components ====================
 
-const Overlay = styled.div`
-  position: fixed;
-  inset: 0;
-  z-index: 10500;
-  background: rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(2px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  animation: fadeIn 0.15s ease;
-
-  @keyframes fadeIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
-  }
-`
-
-const Card = styled.div`
-  width: 420px;
-  max-width: 90vw;
-  background: var(--color-background);
-  border: 0.5px solid var(--color-border);
-  border-radius: 12px;
-  padding: 20px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  animation: slideUp 0.2s ease;
-
-  @keyframes slideUp {
-    from { transform: translateY(12px); opacity: 0; }
-    to { transform: translateY(0); opacity: 1; }
-  }
-`
+// --- Shared ---
 
 const CardHeader = styled.div`
   display: flex;
@@ -190,12 +271,12 @@ const CardHeader = styled.div`
 const HeaderLeft = styled.div`
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   color: var(--color-primary);
 `
 
 const HeaderTitle = styled.span`
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--color-text);
 `
@@ -204,8 +285,8 @@ const CloseButton = styled.button`
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   border: none;
   border-radius: 6px;
   background: transparent;
@@ -220,34 +301,106 @@ const CloseButton = styled.button`
 `
 
 const QuestionText = styled.div`
-  font-size: 15px;
+  font-size: 14px;
   line-height: 1.5;
   color: var(--color-text);
-  padding: 4px 0;
 `
 
 const ChoicesList = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
 `
 
 const ChoiceItem = styled.div<{ $selected: boolean }>`
-  padding: 8px 12px;
+  padding: 7px 10px;
   border-radius: 8px;
-  border: 1px solid ${(p) => (p.$selected ? 'var(--color-primary)' : 'var(--color-border)')};
-  background: ${(p) => (p.$selected ? 'var(--color-primary-mute)' : 'transparent')};
+  border: 1px solid ${(p) => (p.$selected ? 'var(--color-border)' : 'transparent')};
+  background: ${(p) => (p.$selected ? 'var(--color-background-soft)' : 'transparent')};
   transition: all 0.15s ease;
   cursor: pointer;
 
+  .ant-radio-wrapper {
+    font-size: 13px;
+  }
+
   &:hover {
-    border-color: var(--color-primary);
-    background: var(--color-primary-mute);
+    background: var(--color-background-soft);
+  }
+`
+
+const MultiChoiceItem = styled.div<{ $selected: boolean }>`
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid ${(p) => (p.$selected ? 'var(--color-border)' : 'transparent')};
+  background: ${(p) => (p.$selected ? 'var(--color-background-soft)' : 'transparent')};
+  transition: all 0.15s ease;
+  cursor: pointer;
+
+  .ant-checkbox-wrapper {
+    font-size: 13px;
+  }
+
+  &:hover {
+    background: var(--color-background-soft);
   }
 `
 
 const CardFooter = styled.div`
   display: flex;
   justify-content: flex-end;
-  padding-top: 4px;
+`
+
+const CustomInputArea = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+`
+
+const CustomInputLabel = styled.div`
+  font-size: 12px;
+  color: var(--color-text-3);
+  font-weight: 500;
+`
+
+// --- Modal Mode ---
+
+const Overlay = styled(motion.div)`
+  position: fixed;
+  inset: 0;
+  z-index: 10500;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+`
+
+const modalCardStyles = css`
+  width: 420px;
+  max-width: 90vw;
+  background: var(--color-background);
+  border: 0.5px solid var(--color-border);
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+`
+
+const ModalCard = styled(motion.div)`
+  ${modalCardStyles}
+`
+
+// --- Inline Mode ---
+
+const InlineCard = styled.div`
+  background: var(--color-background-opacity);
+  border: 0.5px solid var(--color-border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 `

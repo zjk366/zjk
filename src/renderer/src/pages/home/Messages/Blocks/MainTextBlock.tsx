@@ -11,7 +11,7 @@ import { useSelector } from 'react-redux'
 import styled from 'styled-components'
 
 import Markdown from '../../Markdown/Markdown'
-import FormQuestion from './FormQuestion'
+import FormQuestionSet from './FormQuestion'
 
 interface Props {
   block: MainTextMessageBlock
@@ -41,12 +41,58 @@ const MainTextBlock: React.FC<Props> = ({ block, citationBlockId, role, mentions
     [block.citationReferences, citationBlockId, rawCitations]
   )
 
-  // 检测是否有 <form_question> XML，优先渲染交互式表单
+  // 在内容中搜索 <form_question> XML
   const content = block.content || ''
-  const isForm = content.trim().startsWith('<form_question')
+  const hasFormTagOpen = content.includes('<form_question')
+  const fullFormTagRe = /<form_question[\s\S]*?<\/form_question>/g
+  const allFormMatches = hasFormTagOpen ? [...content.matchAll(fullFormTagRe)] : []
+  const hasCompleteForms = allFormMatches.length > 0
 
-  if (isForm) {
-    return <FormQuestion content={content} />
+  // 如果是纯 form_question 内容，直接渲染表单集
+  if (content.trim().startsWith('<form_question')) {
+    return <FormQuestionSet content={content} />
+  }
+
+  // 检测到 <form_question 但尚未完全闭合（流式加载中）
+  if (hasFormTagOpen && !hasCompleteForms) {
+    const formStart = content.indexOf('<form_question')
+    const before = formStart > 0 ? content.slice(0, formStart).trim() : ''
+    return (
+      <>
+        {before && <Markdown block={{ ...block, content: before }} postProcess={processContent} />}
+        <FormLoadingPlaceholder />
+      </>
+    )
+  }
+
+  // 有完整的 form_question 标签 → 分段渲染：文本段 + 表单集合 + 文本段
+  if (hasCompleteForms) {
+    // 构建分段数组：每个元素是 { type: 'text' | 'form', content: string }
+    const segments: { type: 'text' | 'form'; content: string }[] = []
+    let lastEnd = 0
+    for (const m of allFormMatches) {
+      const beforeText = content.slice(lastEnd, m.index).trim()
+      if (beforeText) segments.push({ type: 'text', content: beforeText })
+      segments.push({ type: 'form', content: m[0] })
+      lastEnd = m.index + m[0].length
+    }
+    const afterText = content.slice(lastEnd).trim()
+    if (afterText) segments.push({ type: 'text', content: afterText })
+
+    // 收集所有表单 XML 到一个 FormQuestionSet
+    const formXmls = segments.filter((s) => s.type === 'form').map((s) => s.content)
+    const joinedFormXml = formXmls.join('\n')
+
+    return (
+      <>
+        {segments
+          .filter((s) => s.type === 'text')
+          .map((s, i) => (
+            <Markdown key={i} block={{ ...block, content: s.content }} postProcess={processContent} />
+          ))}
+        {joinedFormXml && <FormQuestionSet content={joinedFormXml} />}
+      </>
+    )
   }
 
   return (
@@ -72,6 +118,30 @@ const MainTextBlock: React.FC<Props> = ({ block, citationBlockId, role, mentions
 
 const MentionTag = styled.span`
   color: var(--color-link);
+`
+
+const FormLoadingPlaceholder = styled.div`
+  border: 0.5px solid var(--color-border);
+  border-radius: 10px;
+  padding: 20px;
+  margin: 8px 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--color-text-3);
+  font-size: 13px;
+  min-height: 60px;
+  animation: formPulse 1.5s ease-in-out infinite;
+
+  &::after {
+    content: '正在加载表单...';
+  }
+
+  @keyframes formPulse {
+    0%, 100% { opacity: 0.5; }
+    50% { opacity: 1; }
+  }
 `
 
 export default React.memo(MainTextBlock)

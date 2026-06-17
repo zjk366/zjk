@@ -3,8 +3,7 @@ import { QuickPanelReservedSymbol, useQuickPanel } from '@renderer/components/Qu
 import { useKnowledgeBases } from '@renderer/hooks/useKnowledge'
 import type { ToolQuickPanelApi } from '@renderer/pages/home/Inputbar/types'
 import type { FileMetadata, KnowledgeBase, KnowledgeItem } from '@renderer/types'
-import { filterSupportedFiles, formatFileSize } from '@renderer/utils/file'
-import { Tooltip } from 'antd'
+import { formatFileSize } from '@renderer/utils/file'
 import dayjs from 'dayjs'
 import { FileSearch, FileText, FolderOpen, FolderTree, List, Paperclip, Upload, X } from 'lucide-react'
 import type { Dispatch, FC, SetStateAction } from 'react'
@@ -123,7 +122,15 @@ function treeToText(node: TreeNode, prefix = '', isLast = true, collapseThreshol
   return result
 }
 
-const AttachmentButton: FC<Props> = ({ quickPanel, couldAddImageFile, extensions, files, setFiles, disabled, onTextChange }) => {
+const AttachmentButton: FC<Props> = ({
+  quickPanel,
+  couldAddImageFile,
+  extensions,
+  files,
+  setFiles,
+  disabled,
+  onTextChange
+}) => {
   const { t } = useTranslation()
   const quickPanelHook = useQuickPanel()
   const { bases: knowledgeBases } = useKnowledgeBases()
@@ -131,13 +138,16 @@ const AttachmentButton: FC<Props> = ({ quickPanel, couldAddImageFile, extensions
   const [scanning, setScanning] = useState<boolean>(false)
   // 文件夹选择模式：null=未选择, 'tree'=保留结构, 'flat'=仅文件
   const [folderMode, setFolderMode] = useState<{ path: string; name: string } | null>(null)
+  // upload mode: file=individual files, folder=entire folder
+  const [attachMode, setAttachMode] = useState<'file' | 'folder'>('file')
 
   // 递归扫描目录（获取所有文件的 FileMetadata）
   const scanDirRecursive = useCallback(async (dirPath: string): Promise<FileMetadata[]> => {
     const result: FileMetadata[] = []
     try {
       const listFn = (window.api.file as any).listDirectory as
-        ((p: string) => Promise<{ name: string; path: string; type: string; isDirectory?: boolean }[]>) | undefined
+        | ((p: string) => Promise<{ name: string; path: string; type: string; isDirectory?: boolean }[]>)
+        | undefined
       if (typeof listFn !== 'function') return result
 
       const entries = await listFn(dirPath)
@@ -150,27 +160,34 @@ const AttachmentButton: FC<Props> = ({ quickPanel, couldAddImageFile, extensions
           try {
             const meta = await window.api.file.get(fullPath)
             if (meta) result.push(meta)
-          } catch { /* skip */ }
+          } catch {
+            /* skip */
+          }
         }
       }
-    } catch { /* skip */ }
+    } catch {
+      /* skip */
+    }
     return result
   }, [])
 
   // 扫出所有文件并过滤危险类型
-  const doScanFiles = useCallback(async (dirPath: string): Promise<FileMetadata[]> => {
-    let scanned: FileMetadata[] = []
-    if (typeof (window.api.file as any).listAllFiles === 'function') {
-      scanned = await (window.api.file as any).listAllFiles(dirPath)
-    } else {
-      scanned = await scanDirRecursive(dirPath)
-    }
-    const dangerous = new Set(['exe', 'bat', 'cmd', 'com', 'dll', 'sys', 'msi', 'scr', 'pif', 'so', 'dylib'])
-    return scanned.filter((f) => {
-      const ext = (f.ext || f.origin_name?.split('.').pop() || '').toLowerCase().replace(/^\./, '')
-      return !dangerous.has(ext)
-    })
-  }, [scanDirRecursive])
+  const doScanFiles = useCallback(
+    async (dirPath: string): Promise<FileMetadata[]> => {
+      let scanned: FileMetadata[] = []
+      if (typeof (window.api.file as any).listAllFiles === 'function') {
+        scanned = await (window.api.file as any).listAllFiles(dirPath)
+      } else {
+        scanned = await scanDirRecursive(dirPath)
+      }
+      const dangerous = new Set(['exe', 'bat', 'cmd', 'com', 'dll', 'sys', 'msi', 'scr', 'pif', 'so', 'dylib'])
+      return scanned.filter((f) => {
+        const ext = (f.ext || f.origin_name?.split('.').pop() || '').toLowerCase().replace(/^\./, '')
+        return !dangerous.has(ext)
+      })
+    },
+    [scanDirRecursive]
+  )
 
   // 保留目录结构：生成目录树并注入输入框（不读取文件内容，按需由 AI 读取）
   const handleTreeMode = useCallback(async () => {
@@ -212,7 +229,7 @@ const AttachmentButton: FC<Props> = ({ quickPanel, couldAddImageFile, extensions
         treeBody,
         '```',
         '',
-        '> 💡 需要查看或修改文件时请直接告诉 AI，它会自动读取并处理。',
+        '> 💡 需要查看或修改文件时请直接告诉 AI，它会自动读取并处理。'
       ]
 
       onTextChange((prev) => {
@@ -266,25 +283,16 @@ const AttachmentButton: FC<Props> = ({ quickPanel, couldAddImageFile, extensions
 
   const openFileSelectDialog = useCallback(async () => {
     if (selecting) return
-    const useAllFiles = extensions.length > 20
     setSelecting(true)
     const _files = await window.api.file.select({
       properties: ['openFile', 'multiSelections'],
-      filters: [{ name: 'Files', extensions: useAllFiles ? ['*'] : extensions.map((i) => i.replace('.', '')) }]
+      filters: [{ name: 'All Files', extensions: ['*'] }]
     })
     setSelecting(false)
     if (_files) {
-      if (!useAllFiles) {
-        setFiles([...files, ..._files])
-        return
-      }
-      const supportedFiles = await filterSupportedFiles(_files, extensions)
-      if (supportedFiles.length > 0) setFiles([...files, ...supportedFiles])
-      if (supportedFiles.length !== _files.length) {
-        window.toast.info(t('chat.input.file_not_supported_count', { count: _files.length - supportedFiles.length }))
-      }
+      setFiles([...files, ..._files])
     }
-  }, [extensions, files, selecting, setFiles, t])
+  }, [files, selecting, setFiles])
 
   const openKnowledgeFileList = useCallback(
     (base: KnowledgeBase) => {
@@ -296,7 +304,8 @@ const AttachmentButton: FC<Props> = ({ quickPanel, couldAddImageFile, extensions
             const fileContent = file.content as FileMetadata
             return {
               label: fileContent.origin_name || fileContent.name,
-              description: formatFileSize(fileContent.size) + ' · ' + dayjs(fileContent.created_at).format('YYYY-MM-DD HH:mm'),
+              description:
+                formatFileSize(fileContent.size) + ' · ' + dayjs(fileContent.created_at).format('YYYY-MM-DD HH:mm'),
               icon: <FileText />,
               isSelected: files.some((f) => f.path === fileContent.path),
               action: async ({ item }) => {
@@ -320,39 +329,112 @@ const AttachmentButton: FC<Props> = ({ quickPanel, couldAddImageFile, extensions
 
   const items = useMemo(() => {
     return [
-      { label: t('chat.input.upload.upload_from_local'), description: '', icon: <Upload />, action: () => openFileSelectDialog() },
-      { label: t('chat.input.upload.select_folder'), description: '', icon: <FolderOpen />, disabled: scanning, action: () => { void openFolderSelectDialog() } },
+      {
+        label: t('chat.input.upload.upload_from_local'),
+        description: '',
+        icon: <Upload />,
+        action: () => openFileSelectDialog()
+      },
+      {
+        label: t('chat.input.upload.select_folder'),
+        description: '',
+        icon: <FolderOpen />,
+        disabled: scanning,
+        action: () => {
+          void openFolderSelectDialog()
+        }
+      },
       ...knowledgeBases.map((base) => {
-        const length = base.items?.filter((item): item is KnowledgeItem => ['file', 'note'].includes(item.type) && typeof item.content !== 'string').length
-        return { label: base.name, description: `${length} ${t('files.count')}`, icon: <FileSearch />, disabled: length === 0, isMenu: true, action: () => openKnowledgeFileList(base) }
+        const length = base.items?.filter(
+          (item): item is KnowledgeItem => ['file', 'note'].includes(item.type) && typeof item.content !== 'string'
+        ).length
+        return {
+          label: base.name,
+          description: `${length} ${t('files.count')}`,
+          icon: <FileSearch />,
+          disabled: length === 0,
+          isMenu: true,
+          action: () => openKnowledgeFileList(base)
+        }
       })
     ]
   }, [knowledgeBases, openFileSelectDialog, openFolderSelectDialog, openKnowledgeFileList, scanning, t])
 
   const openQuickPanel = useCallback(() => {
-    quickPanelHook.open({ title: t('chat.input.upload.attachment'), list: items, symbol: QuickPanelReservedSymbol.File })
+    quickPanelHook.open({
+      title: t('chat.input.upload.attachment'),
+      list: items,
+      symbol: QuickPanelReservedSymbol.File
+    })
   }, [items, quickPanelHook, t])
 
   useEffect(() => {
-    const disposeRootMenu = quickPanel.registerRootMenu([{
-      label: couldAddImageFile ? t('chat.input.upload.attachment') : t('chat.input.upload.document'),
-      description: '', icon: <Paperclip />, isMenu: true, action: () => openQuickPanel()
-    }])
+    const disposeRootMenu = quickPanel.registerRootMenu([
+      {
+        label: couldAddImageFile ? t('chat.input.upload.attachment') : t('chat.input.upload.document'),
+        description: '',
+        icon: <Paperclip />,
+        isMenu: true,
+        action: () => openQuickPanel()
+      }
+    ])
     const disposeTrigger = quickPanel.registerTrigger(QuickPanelReservedSymbol.File, () => openQuickPanel())
-    return () => { disposeRootMenu(); disposeTrigger() }
+    return () => {
+      disposeRootMenu()
+      disposeTrigger()
+    }
   }, [couldAddImageFile, openQuickPanel, quickPanel, t])
 
   return (
     <>
-      <Tooltip placement="top" title={t('chat.input.upload.select_folder')} mouseLeaveDelay={0} arrow>
+      <span style={{ position: 'relative', display: 'inline-block' }}>
         <ActionIconButton
-          onClick={() => { void openFolderSelectDialog() }}
+          onClick={() => {
+            void (attachMode === 'file' ? openFileSelectDialog() : openFolderSelectDialog())
+          }}
           active={files.length > 0}
           disabled={disabled}
-          aria-label={t('chat.input.upload.select_folder')}>
-          <FolderOpen size={18} />
+          aria-label={
+            attachMode === 'file' ? t('chat.input.upload.upload_from_local') : t('chat.input.upload.select_folder')
+          }>
+          {attachMode === 'file' ? <Upload size={18} /> : <FolderOpen size={18} />}
         </ActionIconButton>
-      </Tooltip>
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            setAttachMode((p) => (p === 'file' ? 'folder' : 'file'))
+          }}
+          title={attachMode === 'file' ? '切换文件夹上传' : '切换文件上传'}
+          style={{
+            position: 'absolute',
+            bottom: -3,
+            right: -3,
+            width: 16,
+            height: 16,
+            border: 'none',
+            background: 'none',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 0,
+            zIndex: 1,
+            color: 'var(--color-text-3)'
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.color = 'var(--color-text)'
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.color = 'var(--color-text-3)'
+          }}>
+          <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+            <rect x="1" y="3" width="10" height="3" />
+            <polygon points="11,1.5 11,7.5 15,4.5" />
+            <rect x="5" y="10" width="10" height="3" />
+            <polygon points="5,8.5 5,14.5 1,11.5" />
+          </svg>
+        </button>
+      </span>
 
       {/* 文件夹上传模式选择弹窗 */}
       {folderMode && (
@@ -360,18 +442,27 @@ const AttachmentButton: FC<Props> = ({ quickPanel, couldAddImageFile, extensions
           <ModePanel onClick={(e) => e.stopPropagation()}>
             <ModeHeader>
               <ModeTitle>选择上传方式</ModeTitle>
-              <ModeClose onClick={() => setFolderMode(null)}><X size={16} /></ModeClose>
+              <ModeClose onClick={() => setFolderMode(null)}>
+                <X size={16} />
+              </ModeClose>
             </ModeHeader>
             <ModeFolderName>📁 {folderMode.name}</ModeFolderName>
             <ModeButtons>
-              <ModeButton $primary onClick={() => { void handleTreeMode() }}>
+              <ModeButton
+                $primary
+                onClick={() => {
+                  void handleTreeMode()
+                }}>
                 <FolderTree size={20} />
                 <ModeButtonLabel>
                   <strong>保留目录结构</strong>
                   <span>上传目录树和路径信息，AI 可凭此了解项目结构。按需读取文件请直接告诉 AI</span>
                 </ModeButtonLabel>
               </ModeButton>
-              <ModeButton onClick={() => { void handleFlatMode() }}>
+              <ModeButton
+                onClick={() => {
+                  void handleFlatMode()
+                }}>
                 <List size={20} />
                 <ModeButtonLabel>
                   <strong>仅上传文件</strong>

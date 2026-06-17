@@ -55,9 +55,7 @@ const logger = loggerService.withContext('Messages')
 
 const Messages: React.FC<MessagesProps> = ({ assistant, topic, setActiveTopic, onComponentUpdate, onFirstUpdate }) => {
   const topicId = topic?.id ?? ''
-  const { containerRef: scrollContainerRef, handleScroll: handleScrollPosition } = useScrollPosition(
-    `topic-${topicId}`
-  )
+  const { containerRef: scrollContainerRef, handleScroll: handleScrollPosition } = useScrollPosition(`topic-${topicId}`)
   const [displayMessages, setDisplayMessages] = useState<Message[]>([])
   const [hasMore, setHasMore] = useState(false)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
@@ -350,11 +348,14 @@ const Messages: React.FC<MessagesProps> = ({ assistant, topic, setActiveTopic, o
 }
 
 const computeDisplayMessages = (messages: Message[], startIndex: number, displayCount: number) => {
+  // 系统消息（如表单答案）不在聊天中渲染，仅作为 AI 上下文
+  const visibleMessages = messages.filter((m) => m.role !== 'system')
+
   // 如果剩余消息数量小于 displayCount，直接返回所有剩余消息的倒序切片
-  if (messages.length - startIndex <= displayCount) {
+  if (visibleMessages.length - startIndex <= displayCount) {
     const result: Message[] = []
-    for (let i = messages.length - 1 - startIndex; i >= 0; i--) {
-      result.push(messages[i])
+    for (let i = visibleMessages.length - 1 - startIndex; i >= 0; i--) {
+      result.push(visibleMessages[i])
     }
     return result
   }
@@ -379,8 +380,12 @@ const computeDisplayMessages = (messages: Message[], startIndex: number, display
   }
 
   // 直接在原数组上倒序遍历，跳过前 startIndex 个，避免全量拷贝和 reverse()
-  for (let i = messages.length - 1 - startIndex; i >= 0 && userIdSet.size + assistantIdSet.size < displayCount; i--) {
-    processMessage(messages[i])
+  for (
+    let i = visibleMessages.length - 1 - startIndex;
+    i >= 0 && userIdSet.size + assistantIdSet.size < displayCount;
+    i--
+  ) {
+    processMessage(visibleMessages[i])
   }
 
   return displayMessages

@@ -7,7 +7,6 @@ import { useEffect } from 'react'
 import { Provider } from 'react-redux'
 import { PersistGate } from 'redux-persist/integration/react'
 
-import { ClarifyCard } from './components/ClarifyCard'
 import TopViewContainer from './components/TopView'
 import AntdProvider from './context/AntdProvider'
 import { CodeStyleProvider } from './context/CodeStyleProvider'
@@ -50,7 +49,6 @@ function App(): React.ReactElement {
                   <PersistGate loading={null} persistor={persistor}>
                     <TopViewContainer>
                       <Router />
-                      <ClarifyCard />
                     </TopViewContainer>
                   </PersistGate>
                 </CodeStyleProvider>

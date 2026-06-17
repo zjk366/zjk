@@ -20,6 +20,8 @@ export interface ClarifyParams {
   question: string
   choices?: string[]
   allowFreeText?: boolean
+  /** 选择模式: single=单选 multiple=多选 input=仅输入框。默认根据 choices 决定 */
+  mode?: 'single' | 'multiple' | 'input'
 }
 
 export interface ClarifyPending {
