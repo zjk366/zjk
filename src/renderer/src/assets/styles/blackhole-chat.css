@@ -111,3 +111,9 @@ body.blackhole-theme .iconfont.icon-ic_send[aria-disabled='false']:hover {
     0 0 30px color-mix(in srgb, var(--color-primary) 40%, transparent),
     0 0 60px color-mix(in srgb, var(--color-primary) 20%, transparent) !important;
 }
+
+/* 计划预设模式按钮激活态 — 极简风格 */
+body.blackhole-theme .plan-mode-active {
+  color: var(--color-primary) !important;
+  opacity: 0.85;
+}

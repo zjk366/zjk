@@ -532,14 +532,7 @@ const InputbarInner: FC<InputbarInnerProps> = ({
         title={planMode ? '关闭计划模式，执行构建' : '开启计划模式，仅设计方案'}
         mouseLeaveDelay={0}
         arrow>
-        <ActionIconButton
-          onClick={togglePlanMode}
-          style={{
-            color: planMode ? 'var(--color-primary)' : 'var(--color-text-3)',
-            boxShadow: planMode
-              ? '0 0 0 1.5px var(--color-primary),0 0 16px -6px var(--color-primary),inset 0 0 8px -6px var(--color-primary)'
-              : undefined
-          }}>
+        <ActionIconButton onClick={togglePlanMode} className={planMode ? 'plan-mode-active' : ''}>
           <svg
             width="18"
             height="18"
