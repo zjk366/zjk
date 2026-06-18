@@ -117,3 +117,151 @@ body.blackhole-theme .plan-mode-active {
   color: var(--color-primary) !important;
   opacity: 0.85;
 }
+
+/* ============================================================
+   Modal 弹框 — Blackhole 暗色主题
+   ============================================================ */
+
+/* Modal 遮罩层 */
+body.blackhole-theme .ant-modal-mask {
+  background-color: rgba(0, 0, 0, 0.65) !important;
+}
+
+/* Modal 容器 — 深空暗色 */
+body.blackhole-theme .ant-modal-content {
+  background: var(--color-black) !important;
+  border: 0.5px solid var(--color-border) !important;
+  border-radius: 14px !important;
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(255, 255, 255, 0.03) !important;
+}
+
+/* Modal 标题 */
+body.blackhole-theme .ant-modal-header {
+  background: transparent !important;
+  border-bottom: 0.5px solid var(--color-border) !important;
+  border-radius: 14px 14px 0 0 !important;
+}
+
+body.blackhole-theme .ant-modal-title {
+  color: var(--color-text-1) !important;
+  font-size: 15px !important;
+  font-weight: 600 !important;
+}
+
+/* Modal 关闭按钮 */
+body.blackhole-theme .ant-modal-close {
+  color: var(--color-text-3) !important;
+}
+
+body.blackhole-theme .ant-modal-close:hover {
+  color: var(--color-text-1) !important;
+  background: var(--color-hover) !important;
+}
+
+/* Modal 内容文字 */
+body.blackhole-theme .ant-modal-body {
+  color: var(--color-text-2) !important;
+  font-size: 13.5px !important;
+  line-height: 1.6 !important;
+}
+
+/* ============================================================
+   Confirm 确认弹框 — 警告、删除等
+   ============================================================ */
+
+body.blackhole-theme .ant-modal-confirm-body-wrapper {
+  padding: 4px 0;
+}
+
+/* 警告图标 — 红色调 */
+body.blackhole-theme .ant-modal-confirm-body .anticon-exclamation-circle {
+  color: var(--color-status-warning) !important;
+  font-size: 20px;
+}
+
+body.blackhole-theme .ant-modal-confirm-body .anticon-question-circle {
+  color: var(--color-primary) !important;
+  font-size: 20px;
+}
+
+body.blackhole-theme .ant-modal-confirm-body .anticon-check-circle {
+  color: var(--color-status-success) !important;
+  font-size: 20px;
+}
+
+/* 标题 */
+body.blackhole-theme .ant-modal-confirm-title {
+  color: var(--color-text-1) !important;
+  font-size: 15px !important;
+  font-weight: 600 !important;
+}
+
+/* 内容 */
+body.blackhole-theme .ant-modal-confirm-content {
+  color: var(--color-text-2) !important;
+  font-size: 13.5px !important;
+  line-height: 1.6 !important;
+  margin-top: 6px !important;
+}
+
+/* Modal 底部按钮区域 */
+body.blackhole-theme .ant-modal-confirm-btns {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 20px !important;
+}
+
+/* 取消按钮 — 暗色半透明 */
+body.blackhole-theme .ant-modal-confirm-btns .ant-btn-default {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border: 0.5px solid var(--color-border) !important;
+  color: var(--color-text-2) !important;
+  border-radius: 8px !important;
+  font-size: 13px !important;
+  height: 34px !important;
+  padding: 0 18px !important;
+  transition: all 0.2s ease !important;
+}
+
+body.blackhole-theme .ant-modal-confirm-btns .ant-btn-default:hover {
+  background: rgba(255, 255, 255, 0.1) !important;
+  border-color: var(--color-gray-3) !important;
+  color: var(--color-text-1) !important;
+}
+
+/* 确认/危险按钮 — 主题红色 */
+body.blackhole-theme .ant-modal-confirm-btns .ant-btn-primary.ant-btn-dangerous {
+  background: rgba(248, 81, 73, 0.15) !important;
+  border: 0.5px solid rgba(248, 81, 73, 0.35) !important;
+  color: var(--color-error) !important;
+  border-radius: 8px !important;
+  font-size: 13px !important;
+  height: 34px !important;
+  padding: 0 18px !important;
+  transition: all 0.2s ease !important;
+}
+
+body.blackhole-theme .ant-modal-confirm-btns .ant-btn-primary.ant-btn-dangerous:hover {
+  background: rgba(248, 81, 73, 0.25) !important;
+  border-color: var(--color-error) !important;
+}
+
+/* 确认按钮 — 普通确认（非危险） */
+body.blackhole-theme .ant-modal-confirm-btns .ant-btn-primary:not(.ant-btn-dangerous) {
+  background: rgba(59, 130, 246, 0.15) !important;
+  border: 0.5px solid rgba(59, 130, 246, 0.35) !important;
+  color: var(--color-primary) !important;
+  border-radius: 8px !important;
+  font-size: 13px !important;
+  height: 34px !important;
+  padding: 0 18px !important;
+  transition: all 0.2s ease !important;
+}
+
+body.blackhole-theme .ant-modal-confirm-btns .ant-btn-primary:not(.ant-btn-dangerous):hover {
+  background: rgba(59, 130, 246, 0.25) !important;
+  border-color: var(--color-primary) !important;
+}

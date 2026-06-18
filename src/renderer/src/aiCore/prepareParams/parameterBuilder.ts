@@ -222,11 +222,9 @@ export async function buildStreamTextParams(
 
   params.stopWhen = stepCountIs(maxToolCalls)
 
-  // 计划预设模式：移除所有工具，AI 无法执行任何操作
+  // 计划预设模式：不传工具，AI 物理上无法调用
   const planMode = store.getState().runtime.planMode
-  if (planMode) {
-    params.tools = undefined
-  } else if (tools) {
+  if (!planMode && tools) {
     params.tools = tools
   }
 

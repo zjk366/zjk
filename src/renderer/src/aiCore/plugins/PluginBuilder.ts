@@ -8,6 +8,7 @@ import {
   isSupportedThinkingTokenQwenModel
 } from '@renderer/config/models'
 import { getEnableDeveloperMode } from '@renderer/hooks/useSettings'
+import store from '@renderer/store'
 import type { Assistant, Model, Provider } from '@renderer/types'
 import { SystemProviderIds } from '@renderer/types'
 import { isOllamaProvider, isSupportEnableThinkingProvider } from '@renderer/utils/provider'
@@ -116,31 +117,29 @@ export function buildPlugins({ provider, model, config }: BuildPluginsContext): 
     plugins.push(createSkipGeminiThoughtSignaturePlugin())
   }
 
-  // 1. Provider 工具注入 — providerToolPlugin 自动按 provider 分发工具
-  if (config.enableWebSearch && config.webSearchPluginConfig) {
-    plugins.push(providerToolPlugin('webSearch', config.webSearchPluginConfig))
-  }
-  if (config.enableUrlContext) {
-    plugins.push(providerToolPlugin('urlContext', config.urlContextConfig))
-  }
-  // 2. 支持工具调用时添加搜索插件
-  // 只有助手实际配置了搜索/知识库/记忆时才注册，避免多余的意图分析 LLM 调用
-  const hasSearchFeatures = !!(
-    config.assistant?.webSearchProviderId ||
-    config.assistant?.knowledge_bases?.length ||
-    config.assistant?.enableMemory
-  )
-  if ((config.isSupportedToolUse || config.isPromptToolUse) && hasSearchFeatures) {
-    plugins.push(searchOrchestrationPlugin(config.assistant, config.topicId || ''))
+  // 计划预设模式：跳过所有工具插件
+  const planMode = store.getState().runtime.planMode
+  if (!planMode) {
+    // 1. Provider 工具注入 — providerToolPlugin 自动按 provider 分发工具
+    if (config.enableWebSearch && config.webSearchPluginConfig) {
+      plugins.push(providerToolPlugin('webSearch', config.webSearchPluginConfig))
+    }
+    if (config.enableUrlContext) {
+      plugins.push(providerToolPlugin('urlContext', config.urlContextConfig))
+    }
+    // 2. 支持工具调用时添加搜索插件
+    const hasSearchFeatures = !!(
+      config.assistant?.webSearchProviderId ||
+      config.assistant?.knowledge_bases?.length ||
+      config.assistant?.enableMemory
+    )
+    if ((config.isSupportedToolUse || config.isPromptToolUse) && hasSearchFeatures) {
+      plugins.push(searchOrchestrationPlugin(config.assistant, config.topicId || ''))
+    }
   }
 
-  // 3. 推理模型时添加推理插件
-  // if (config.enableReasoning) {
-  //   plugins.push(reasoningTimePlugin)
-  // }
-
-  // 4. 启用Prompt工具调用时添加工具插件
-  if (config.isPromptToolUse) {
+  // 3. 启用Prompt工具调用时添加工具插件
+  if (config.isPromptToolUse && !planMode) {
     plugins.push(
       createPromptToolUsePlugin({
         enabled: true,
