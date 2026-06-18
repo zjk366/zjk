@@ -249,6 +249,17 @@ export async function buildStreamTextParams(
     logger.error('Failed to inject file save rule:', error as Error)
   }
 
+  // 计划预设模式：开启时 AI 只设计方案不执行，关闭时正常执行
+  try {
+    const planMode = store.getState().runtime.planMode
+    if (planMode) {
+      const planInstruction = `\n\n## 计划预设模式（当前已开启）\n你处于"计划预设模式"，请遵循以下规则：\n1. **只做方案设计** — 分析需求后输出完整的实施计划（步骤、工具、依赖），但不要实际执行任何工具\n2. **不要执行** — 禁止调用任何 MCP 工具（包括 filesystem 的 write、Bash、终端等）\n3. **完成后等待** — 方案输出完成后提示用户"方案已准备好，请确认后执行"\n4. 用户关闭计划模式后你将收到完整的需求和方案，届时再按方案执行。`
+      systemPrompt = systemPrompt ? `${systemPrompt}\n${planInstruction}` : planInstruction
+    }
+  } catch (error) {
+    logger.error('Failed to inject plan mode instruction:', error as Error)
+  }
+
   if (systemPrompt) {
     params.system = systemPrompt
   }

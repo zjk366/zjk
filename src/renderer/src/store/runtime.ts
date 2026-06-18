@@ -78,6 +78,8 @@ export interface RuntimeState {
   // Migrated from useApiServer, it's global state now
   /** Is the api server running */
   apiServerRunning: boolean
+  /** 计划预设模式：AI 只设计方案不执行 */
+  planMode: boolean
 }
 
 export interface ExportState {
@@ -122,7 +124,8 @@ const initialState: RuntimeState = {
   },
   detectedRegion: null,
   loadingMap: {},
-  apiServerRunning: false
+  apiServerRunning: false,
+  planMode: false
 }
 
 const runtimeSlice = createSlice({
@@ -167,6 +170,9 @@ const runtimeSlice = createSlice({
     },
     setExportState: (state, action: PayloadAction<Partial<ExportState>>) => {
       state.export = { ...state.export, ...action.payload }
+    },
+    setPlanMode: (state, action: PayloadAction<boolean>) => {
+      state.planMode = action.payload
     },
     // Chat related actions
     toggleMultiSelectMode: (state, action: PayloadAction<boolean>) => {
@@ -237,6 +243,7 @@ export const {
   setResourcesPath,
   setUpdateState,
   setExportState,
+  setPlanMode,
   // Chat related actions
   toggleMultiSelectMode,
   setSelectedMessageIds,

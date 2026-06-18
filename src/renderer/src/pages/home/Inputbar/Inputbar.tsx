@@ -31,6 +31,7 @@ import { spanManagerService } from '@renderer/services/SpanManagerService'
 import { estimateTextTokens as estimateTxtTokens, estimateUserPromptUsage } from '@renderer/services/TokenService'
 import WebSearchService from '@renderer/services/WebSearchService'
 import { useAppDispatch, useAppSelector } from '@renderer/store'
+import { setPlanMode } from '@renderer/store/runtime'
 import { sendMessage as _sendMessage } from '@renderer/store/thunk/messageThunk'
 import {
   type Assistant,
@@ -150,6 +151,7 @@ const InputbarInner: FC<InputbarInnerProps> = ({
   const { files, mentionedModels, selectedKnowledgeBases } = useInputbarToolsState()
   const { setFiles, setMentionedModels, setSelectedKnowledgeBases } = useInputbarToolsDispatch()
   const { setCouldAddImageFile } = useInputbarToolsInternalDispatch()
+  const planMode = useAppSelector((state) => state.runtime.planMode)
 
   // 接收外部拖拽注入的文件（来自 DragUploadProvider）
   useEffect(() => {
@@ -494,6 +496,11 @@ const InputbarInner: FC<InputbarInnerProps> = ({
     }
   }, [assistant, model, updateAssistant])
 
+  // 计划预设模式切换（必须在提前 return 之前声明，遵守 Hooks 规则）
+  const togglePlanMode = useCallback(() => {
+    dispatch(setPlanMode(!planMode))
+  }, [dispatch, planMode])
+
   if (isMultiSelectMode) {
     return null
   }
@@ -554,6 +561,8 @@ const InputbarInner: FC<InputbarInnerProps> = ({
       leftToolbar={leftToolbar}
       rightToolbar={rightToolbar}
       topContent={topContent}
+      planMode={planMode}
+      onTogglePlanMode={togglePlanMode}
     />
   )
 }

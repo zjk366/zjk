@@ -3,7 +3,20 @@
  *
  * 按格式分类展示文件，支持日期筛选、缩略图预览。
  */
-import { ArrowLeft, ChevronDown, ChevronRight, ExternalLink, FileEdit, FileImage, FileText, FileType, Folder, FolderOpen, Trash2 } from 'lucide-react'
+import store from '@renderer/store'
+import { setFilesPath } from '@renderer/store/runtime'
+import {
+  ArrowLeft,
+  ChevronDown,
+  ChevronRight,
+  ExternalLink,
+  FileEdit,
+  FileImage,
+  FileText,
+  FileType,
+  Folder,
+  FolderOpen
+} from 'lucide-react'
 import type { FC } from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -19,12 +32,100 @@ interface FileEntry {
 }
 
 const CATEGORIES: Record<string, { label: string; icon: any; exts: string[] }> = {
-  image: { label: '图片', icon: FileImage, exts: ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico', 'tiff', 'tif', 'avif'] },
-  doc: { label: '文档', icon: FileText, exts: ['txt', 'md', 'markdown', 'pdf', 'doc', 'docx', 'csv', 'json', 'xml', 'yaml', 'yml', 'ini', 'cfg', 'conf', 'log', 'rtf'] },
-  code: { label: '代码', icon: FileType, exts: ['js', 'ts', 'jsx', 'tsx', 'py', 'java', 'go', 'rs', 'c', 'cpp', 'cc', 'cxx', 'h', 'hpp', 'html', 'htm', 'css', 'scss', 'less', 'sass', 'sql', 'sh', 'bash', 'zsh', 'lua', 'rb', 'php', 'swift', 'kt', 'dart', 'vue', 'svelte', 'astro', 'pl', 'pm', 'r', 'm', 'ex', 'exs', 'erl', 'hs', 'clj', 'tf', 'gradle', 'makefile', 'cmake', 'dockerfile', 'env', 'gitignore', 'editorconfig'] },
-  video: { label: '视频', icon: FileType, exts: ['mp4', 'avi', 'mov', 'mkv', 'webm', 'flv', 'f4v', 'wmv', 'm4v', '3gp', 'ogv'] },
-  audio: { label: '音频', icon: FileType, exts: ['mp3', 'wav', 'ogg', 'flac', 'aac', 'wma', 'm4a', 'opus', 'mid', 'midi'] },
-  other: { label: '其他', icon: FileType, exts: [] },
+  image: {
+    label: '图片',
+    icon: FileImage,
+    exts: ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico', 'tiff', 'tif', 'avif']
+  },
+  doc: {
+    label: '文档',
+    icon: FileText,
+    exts: [
+      'txt',
+      'md',
+      'markdown',
+      'pdf',
+      'doc',
+      'docx',
+      'csv',
+      'json',
+      'xml',
+      'yaml',
+      'yml',
+      'ini',
+      'cfg',
+      'conf',
+      'log',
+      'rtf'
+    ]
+  },
+  code: {
+    label: '代码',
+    icon: FileType,
+    exts: [
+      'js',
+      'ts',
+      'jsx',
+      'tsx',
+      'py',
+      'java',
+      'go',
+      'rs',
+      'c',
+      'cpp',
+      'cc',
+      'cxx',
+      'h',
+      'hpp',
+      'html',
+      'htm',
+      'css',
+      'scss',
+      'less',
+      'sass',
+      'sql',
+      'sh',
+      'bash',
+      'zsh',
+      'lua',
+      'rb',
+      'php',
+      'swift',
+      'kt',
+      'dart',
+      'vue',
+      'svelte',
+      'astro',
+      'pl',
+      'pm',
+      'r',
+      'm',
+      'ex',
+      'exs',
+      'erl',
+      'hs',
+      'clj',
+      'tf',
+      'gradle',
+      'makefile',
+      'cmake',
+      'dockerfile',
+      'env',
+      'gitignore',
+      'editorconfig'
+    ]
+  },
+  video: {
+    label: '视频',
+    icon: FileType,
+    exts: ['mp4', 'avi', 'mov', 'mkv', 'webm', 'flv', 'f4v', 'wmv', 'm4v', '3gp', 'ogv']
+  },
+  audio: {
+    label: '音频',
+    icon: FileType,
+    exts: ['mp3', 'wav', 'ogg', 'flac', 'aac', 'wma', 'm4a', 'opus', 'mid', 'midi']
+  },
+  other: { label: '其他', icon: FileType, exts: [] }
 }
 
 function getCat(ext: string): string {
@@ -41,7 +142,11 @@ function fmtSize(bytes: number): string {
 
 function fmtDate(iso: string): string {
   if (!iso) return ''
-  try { return new Date(iso).toLocaleDateString('zh-CN') } catch { return iso.slice(0, 10) }
+  try {
+    return new Date(iso).toLocaleDateString('zh-CN')
+  } catch {
+    return iso.slice(0, 10)
+  }
 }
 
 /** file:// URL（用于视频/音频预览，cs-vfs 不支持流媒体 Range 请求） */
@@ -56,13 +161,23 @@ function vfsUrl(p: string): string {
 
 const STORAGE_KEY = 'filelib_path'
 const getPath = async () => {
+  // 优先取 Redux filesPath（用户设置过的话）
+  try {
+    const fp = store.getState().runtime.filesPath
+    if (fp) return fp.replace(/\\/g, '/')
+  } catch {
+    /* ok */
+  }
+  // 其次取 localStorage
   const saved = localStorage.getItem(STORAGE_KEY)
   if (saved) return saved.replace(/\\/g, '/')
-  // 首次使用：从 FileVault 获取默认路径
+  // 兜底：从 FileVault 获取默认路径
   try {
     const vaultRoot = await window.electron?.ipcRenderer?.invoke('vault:get-root')
     if (vaultRoot) return vaultRoot.replace(/\\/g, '/')
-  } catch { /* ok */ }
+  } catch {
+    /* ok */
+  }
   return ''
 }
 
@@ -71,7 +186,12 @@ const FileLibPage: FC = () => {
   const [basePath, setBasePath] = useState('')
   const [initDone, setInitDone] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
-  useEffect(() => { getPath().then((p) => { setBasePath(p); setInitDone(true) }) }, [])
+  useEffect(() => {
+    getPath().then((p) => {
+      setBasePath(p)
+      setInitDone(true)
+    })
+  }, [])
   const [files, setFiles] = useState<FileEntry[]>([])
   const [loading, setLoading] = useState(false)
   const [expanded, setExpanded] = useState<string[]>([])
@@ -94,12 +214,19 @@ const FileLibPage: FC = () => {
 
   // 读取文件列表
   const load = useCallback(async () => {
-    if (!basePath) { setFiles([]); return }
+    if (!basePath) {
+      setFiles([])
+      return
+    }
     setLoading(true)
     try {
       const listFn = (window as any).api?.file?.listDirectory
-      if (typeof listFn !== 'function') { setFiles([]); setLoading(false); return }
-      const names: string[] = await listFn(basePath, { maxEntries: 5000, recursive: false }) || []
+      if (typeof listFn !== 'function') {
+        setFiles([])
+        setLoading(false)
+        return
+      }
+      const names: string[] = (await listFn(basePath, { maxEntries: 5000, recursive: false })) || []
       const result: FileEntry[] = []
       for (const fullPathRaw of names) {
         // listDirectory 返回完整路径，如 C:\Users\...\file.png
@@ -107,23 +234,36 @@ const FileLibPage: FC = () => {
         const fileName = fullPath.split('/').pop() || fullPath
         if (fileName.startsWith('.')) continue
         const ext = fileName.includes('.') ? fileName.split('.').pop()!.toLowerCase() : ''
-        let size = 0, createdAt = '', isDir = false
+        let size = 0,
+          createdAt = '',
+          isDir = false
         try {
           const meta = await (window as any).api?.file?.get(fullPath)
-          if (meta) { size = meta.size || 0; createdAt = meta.created_at || '' }
-        } catch { /* ok */ }
+          if (meta) {
+            size = meta.size || 0
+            createdAt = meta.created_at || ''
+          }
+        } catch {
+          /* ok */
+        }
         try {
           isDir = await (window as any).api?.file?.isDirectory(fullPath)
-        } catch { /* ok */ }
+        } catch {
+          /* ok */
+        }
         result.push({ name: fileName, path: fullPath, ext, size, createdAt, isDir })
       }
       result.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
       setFiles(result)
-    } catch { /* ok */ }
+    } catch {
+      /* ok */
+    }
     setLoading(false)
   }, [basePath, refreshKey])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    load()
+  }, [load])
 
   const handleSelectPath = useCallback(async () => {
     const sel = (window as any).api?.file?.selectFolder
@@ -134,9 +274,22 @@ const FileLibPage: FC = () => {
         setBasePath(normalized)
         setRefreshKey((k) => k + 1) // 强制刷新（选同一目录也重新加载）
         localStorage.setItem(STORAGE_KEY, normalized)
-        try { window.electron?.ipcRenderer?.invoke('app:set-filelib-path', normalized) } catch { /* ok */ }
-        // 同步更新 FileVault 根目录，使截图保存到同一文件夹
-        try { window.electron?.ipcRenderer?.invoke('vault:set-root', normalized) } catch { /* ok */ }
+        try {
+          window.electron?.ipcRenderer?.invoke('app:set-filelib-path', normalized)
+        } catch {
+          /* ok */
+        }
+        // 同步更新 FileVault 根目录 + Redux filesPath，使所有文件统一保存
+        try {
+          window.electron?.ipcRenderer?.invoke('vault:set-root', normalized)
+        } catch {
+          /* ok */
+        }
+        try {
+          store.dispatch(setFilesPath(normalized))
+        } catch {
+          /* ok */
+        }
       }
     }
   }, [])
@@ -167,16 +320,18 @@ const FileLibPage: FC = () => {
     try {
       const isText = (window as any).api?.file?.isTextFile
       const readFn = (window as any).api?.file?.readExternal
-      if (typeof isText === 'function' && await isText(item.path) && typeof readFn === 'function') {
+      if (typeof isText === 'function' && (await isText(item.path)) && typeof readFn === 'function') {
         const content = await readFn(item.path)
         setPreviewContent(content || '')
       }
-    } catch { /* not a text file or read error */ }
+    } catch {
+      /* not a text file or read error */
+    }
     setPreviewLoading(false)
   }, [])
 
   const toggleExpand = (key: string) => {
-    setExpanded((p) => p.includes(key) ? p.filter((k) => k !== key) : [...p, key])
+    setExpanded((p) => (p.includes(key) ? p.filter((k) => k !== key) : [...p, key]))
   }
 
   const totalSize = files.reduce((s, f) => s + f.size, 0)
@@ -193,7 +348,9 @@ const FileLibPage: FC = () => {
   return (
     <Root>
       <Header>
-        <BackBtn onClick={() => navigate('/')}><ArrowLeft size={18} /></BackBtn>
+        <BackBtn onClick={() => navigate('/')}>
+          <ArrowLeft size={18} />
+        </BackBtn>
         <Title>📂 文件库</Title>
         <Badge>{files.length} 项</Badge>
         {totalSize > 0 && <Badge>{fmtSize(totalSize)}</Badge>}
@@ -212,7 +369,11 @@ const FileLibPage: FC = () => {
       <FilterBar>
         <DateSelect value={dateFilter} onChange={(e) => setDateFilter(e.target.value)}>
           <option value="">全部日期</option>
-          {availableDates.map((d) => <option key={d} value={d}>{d}</option>)}
+          {availableDates.map((d) => (
+            <option key={d} value={d}>
+              {d}
+            </option>
+          ))}
         </DateSelect>
         {dateFilter && <ClrBtn onClick={() => setDateFilter('')}>✕ 清除</ClrBtn>}
       </FilterBar>
@@ -234,34 +395,42 @@ const FileLibPage: FC = () => {
             return (
               <Section key={group.key}>
                 <SectionHeader onClick={() => toggleExpand(group.key)}>
-                  <IconWrap><Icon size={16} /></IconWrap>
+                  <IconWrap>
+                    <Icon size={16} />
+                  </IconWrap>
                   <SectionTitle>{group.label}</SectionTitle>
                   <SectionCount>{group.items.length} 项</SectionCount>
                   {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                 </SectionHeader>
                 {isOpen && (
                   <SectionBody>
-                    {group.key !== '_dirs' ? (
-                      group.items.map((item) => (
-                        <Row key={item.path} $clickable onClick={() => handlePreview(item)}>
-                          <RowIcon>{group.key === 'image' ? <FileImage size={15} /> : <Icon size={15} />}</RowIcon>
-                          <RowName>{item.name}</RowName>
-                          <RowSize>{fmtSize(item.size)}</RowSize>
-                          <RowDate>{fmtDate(item.createdAt)}</RowDate>
-                          <RowDel onClick={(e) => { e.stopPropagation(); setDeleteTarget(item) }}>✕</RowDel>
-                        </Row>
-                      ))
-                    ) : (
-                      // 文件夹：点击可进入
-                      group.items.map((item) => (
-                        <Row key={item.path} $clickable onClick={() => setBasePath(item.path)}>
-                          <RowIcon><Folder size={15} /></RowIcon>
-                          <RowName>{item.name}</RowName>
-                          <RowSize />
-                          <RowDate />
-                        </Row>
-                      ))
-                    )}
+                    {group.key !== '_dirs'
+                      ? group.items.map((item) => (
+                          <Row key={item.path} $clickable onClick={() => handlePreview(item)}>
+                            <RowIcon>{group.key === 'image' ? <FileImage size={15} /> : <Icon size={15} />}</RowIcon>
+                            <RowName>{item.name}</RowName>
+                            <RowSize>{fmtSize(item.size)}</RowSize>
+                            <RowDate>{fmtDate(item.createdAt)}</RowDate>
+                            <RowDel
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setDeleteTarget(item)
+                              }}>
+                              ✕
+                            </RowDel>
+                          </Row>
+                        ))
+                      : // 文件夹：点击可进入
+                        group.items.map((item) => (
+                          <Row key={item.path} $clickable onClick={() => setBasePath(item.path)}>
+                            <RowIcon>
+                              <Folder size={15} />
+                            </RowIcon>
+                            <RowName>{item.name}</RowName>
+                            <RowSize />
+                            <RowDate />
+                          </Row>
+                        ))}
                   </SectionBody>
                 )}
               </Section>
@@ -272,37 +441,67 @@ const FileLibPage: FC = () => {
 
       {/* 文件预览面板 */}
       {previewFile && (
-        <PreviewOverlay onClick={() => { setPreviewFile(null); setEditMode(false) }}>
+        <PreviewOverlay
+          onClick={() => {
+            setPreviewFile(null)
+            setEditMode(false)
+          }}>
           <PreviewPanel onClick={(e) => e.stopPropagation()}>
             <PreviewHeader>
               <PreviewTitleRow>
-                <PreviewIcon>{['png','jpg','jpeg','gif','svg','webp'].includes(previewFile.ext) ? <FileImage size={18} /> : <FileText size={18} />}</PreviewIcon>
+                <PreviewIcon>
+                  {['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'].includes(previewFile.ext) ? (
+                    <FileImage size={18} />
+                  ) : (
+                    <FileText size={18} />
+                  )}
+                </PreviewIcon>
                 <PreviewName>{previewFile.name}</PreviewName>
               </PreviewTitleRow>
-              <PreviewClose onClick={() => { setPreviewFile(null); setEditMode(false) }}>✕</PreviewClose>
+              <PreviewClose
+                onClick={() => {
+                  setPreviewFile(null)
+                  setEditMode(false)
+                }}>
+                ✕
+              </PreviewClose>
             </PreviewHeader>
             <PreviewPath>{previewFile.path.replace(/\\/g, '/')}</PreviewPath>
             <PreviewActions>
-              <PActionBtn onClick={() => { (window as any).api?.file?.openPath(previewFile.path) }}>
+              <PActionBtn
+                onClick={() => {
+                  ;(window as any).api?.file?.openPath(previewFile.path)
+                }}>
                 <ExternalLink size={14} /> 打开文件
               </PActionBtn>
-              <PActionBtn onClick={() => { (window as any).api?.file?.showInFolder(previewFile.path) }}>
+              <PActionBtn
+                onClick={() => {
+                  ;(window as any).api?.file?.showInFolder(previewFile.path)
+                }}>
                 <FolderOpen size={14} /> 在文件夹中显示
               </PActionBtn>
               {previewContent !== undefined && !editMode && (
-                <PActionBtn onClick={() => { setEditContent(previewContent); setEditMode(true) }}>
+                <PActionBtn
+                  onClick={() => {
+                    setEditContent(previewContent)
+                    setEditMode(true)
+                  }}>
                   <FileEdit size={14} /> 编辑
                 </PActionBtn>
               )}
               {editMode && (
-                <PActionBtn $primary onClick={async () => {
-                  try {
-                    await (window as any).api?.file?.write(previewFile!.path, editContent)
-                    setPreviewContent(editContent)
-                    setEditMode(false)
-                    window.toast?.success?.('已保存')
-                  } catch { window.toast?.error?.('保存失败') }
-                }}>
+                <PActionBtn
+                  $primary
+                  onClick={async () => {
+                    try {
+                      await (window as any).api?.file?.write(previewFile!.path, editContent)
+                      setPreviewContent(editContent)
+                      setEditMode(false)
+                      window.toast?.success?.('已保存')
+                    } catch {
+                      window.toast?.error?.('保存失败')
+                    }
+                  }}>
                   <FileEdit size={14} /> 保存
                 </PActionBtn>
               )}
@@ -310,18 +509,30 @@ const FileLibPage: FC = () => {
             <PreviewBody>
               {previewLoading ? (
                 <PreviewEmpty>加载中...</PreviewEmpty>
-              ) : ['png','jpg','jpeg','gif','svg','webp','bmp','ico','tiff','tif','avif'].includes(previewFile.ext) ? (
-                <img src={`${vfsUrl(previewFile.path)}`} alt={previewFile.name} style={{ maxWidth: '100%', borderRadius: 6, background: 'var(--color-background-mute)' }} />
-              ) : ['mp4','avi','mov','mkv','webm','flv','f4v','wmv','m4v','3gp','ogv'].includes(previewFile.ext) ? (
+              ) : ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico', 'tiff', 'tif', 'avif'].includes(
+                  previewFile.ext
+                ) ? (
+                <img
+                  src={`${vfsUrl(previewFile.path)}`}
+                  alt={previewFile.name}
+                  style={{ maxWidth: '100%', borderRadius: 6, background: 'var(--color-background-mute)' }}
+                />
+              ) : ['mp4', 'avi', 'mov', 'mkv', 'webm', 'flv', 'f4v', 'wmv', 'm4v', '3gp', 'ogv'].includes(
+                  previewFile.ext
+                ) ? (
                 <video controls style={{ width: '100%', borderRadius: 6 }}>
                   <source src={`${fileUrl(previewFile.path)}`} />
                 </video>
-              ) : ['mp3','wav','ogg','flac','aac'].includes(previewFile.ext) ? (
+              ) : ['mp3', 'wav', 'ogg', 'flac', 'aac'].includes(previewFile.ext) ? (
                 <audio controls style={{ width: '100%' }}>
                   <source src={`${fileUrl(previewFile.path)}`} />
                 </audio>
               ) : ['pdf'].includes(previewFile.ext) ? (
-                <embed src={`${vfsUrl(previewFile.path)}`} type="application/pdf" style={{ width: '100%', height: 400, borderRadius: 6 }} />
+                <embed
+                  src={`${vfsUrl(previewFile.path)}`}
+                  type="application/pdf"
+                  style={{ width: '100%', height: 400, borderRadius: 6 }}
+                />
               ) : previewContent ? (
                 editMode ? (
                   <PreviewTextarea value={editContent} onChange={(e) => setEditContent(e.target.value)} />
@@ -346,19 +557,26 @@ const FileLibPage: FC = () => {
         <Modal onClick={() => setDeleteTarget(null)}>
           <MPanel onClick={(e) => e.stopPropagation()}>
             <MT>确认删除</MT>
-            <MB>确定要删除 <b>{deleteTarget.name}</b> 吗？此操作不可撤销。</MB>
+            <MB>
+              确定要删除 <b>{deleteTarget.name}</b> 吗？此操作不可撤销。
+            </MB>
             <MFooter>
               <MCancel onClick={() => setDeleteTarget(null)}>取消</MCancel>
-              <MConfirm onClick={async () => {
-                try {
-                  const fn = deleteTarget.isDir
-                    ? (window as any).api?.file?.deleteExternalDir
-                    : (window as any).api?.file?.deleteExternalFile
-                  if (fn) await fn(deleteTarget.path)
-                } catch { /* ok */ }
-                setDeleteTarget(null)
-                load()
-              }}>确认删除</MConfirm>
+              <MConfirm
+                onClick={async () => {
+                  try {
+                    const fn = deleteTarget.isDir
+                      ? (window as any).api?.file?.deleteExternalDir
+                      : (window as any).api?.file?.deleteExternalFile
+                    if (fn) await fn(deleteTarget.path)
+                  } catch {
+                    /* ok */
+                  }
+                  setDeleteTarget(null)
+                  load()
+                }}>
+                确认删除
+              </MConfirm>
             </MFooter>
           </MPanel>
         </Modal>
