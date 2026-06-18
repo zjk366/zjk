@@ -1,4 +1,5 @@
 import { loggerService } from '@logger'
+import { ActionIconButton } from '@renderer/components/Buttons'
 import {
   isAutoEnableImageGenerationModel,
   isGenerateImageModel,
@@ -45,6 +46,7 @@ import type { MessageInputBaseParams } from '@renderer/types/newMessage'
 import { delay } from '@renderer/utils'
 import { getSendMessageShortcutLabel } from '@renderer/utils/input'
 import { documentExts, imageExts, textExts } from '@shared/config/constant'
+import { Tooltip } from 'antd'
 import { debounce } from 'lodash'
 import type { FC } from 'react'
 import React, { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
@@ -525,6 +527,34 @@ const InputbarInner: FC<InputbarInnerProps> = ({
   const leftToolbar = (
     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
       <SelectModelButton assistant={assistant} compact />
+      <Tooltip
+        placement="top"
+        title={planMode ? '关闭计划模式，执行构建' : '开启计划模式，仅设计方案'}
+        mouseLeaveDelay={0}
+        arrow>
+        <ActionIconButton
+          onClick={togglePlanMode}
+          style={{
+            color: planMode ? 'var(--color-primary)' : 'var(--color-text-3)',
+            boxShadow: planMode
+              ? '0 0 0 1.5px var(--color-primary),0 0 16px -6px var(--color-primary),inset 0 0 8px -6px var(--color-primary)'
+              : undefined
+          }}>
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round">
+            <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+            <path d="M15 2H9a1 1 0 0 0-1 1v2a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V3a1 1 0 0 0-1-1z" />
+            <path d="M9 13l2 2 4-4" />
+          </svg>
+        </ActionIconButton>
+      </Tooltip>
       {config.showTools && <InputbarTools scope={scope} assistant={assistant} model={model} />}
     </div>
   )
@@ -561,8 +591,6 @@ const InputbarInner: FC<InputbarInnerProps> = ({
       leftToolbar={leftToolbar}
       rightToolbar={rightToolbar}
       topContent={topContent}
-      planMode={planMode}
-      onTogglePlanMode={togglePlanMode}
     />
   )
 }

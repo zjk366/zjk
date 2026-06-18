@@ -70,10 +70,6 @@ export interface InputbarCoreProps {
   // Pinned content that floats above the inputbar (uses absolute positioning)
   pinnedContent?: React.ReactNode
 
-  /** 计划预设模式：开启后 AI 只设计方案不执行，关闭后执行完整项目 */
-  planMode?: boolean
-  onTogglePlanMode?: () => void
-
   // Override the user preference for quick panel triggers
   forceEnableQuickPanelTriggers?: boolean
 }
@@ -125,9 +121,7 @@ export const InputbarCore: FC<InputbarCoreProps> = ({
   rightToolbar,
   topContent,
   pinnedContent,
-  forceEnableQuickPanelTriggers,
-  planMode,
-  onTogglePlanMode
+  forceEnableQuickPanelTriggers
 }) => {
   const config = useMemo(() => getInputbarConfig(scope), [scope])
   const { files, isExpanded } = useInputbarToolsState()
@@ -613,42 +607,6 @@ export const InputbarCore: FC<InputbarCoreProps> = ({
   const rightSectionExtras = useMemo(() => {
     const extras: React.ReactNode[] = []
 
-    // 计划预设模式切换按钮
-    extras.push(
-      <Tooltip
-        key="plan-mode"
-        placement="top"
-        title={
-          planMode
-            ? t('chat.input.plan_mode_disable', '关闭计划模式，执行构建')
-            : t('chat.input.plan_mode_enable', '开启计划模式，仅设计方案')
-        }
-        mouseLeaveDelay={0}
-        arrow>
-        <ActionIconButton
-          onClick={onTogglePlanMode}
-          style={{
-            color: planMode ? 'var(--color-primary)' : 'var(--color-text-3)',
-            boxShadow: planMode
-              ? '0 0 0 1.5px var(--color-primary),0 0 16px -6px var(--color-primary),inset 0 0 8px -6px var(--color-primary)'
-              : undefined
-          }}>
-          <svg
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round">
-            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-          </svg>
-        </ActionIconButton>
-      </Tooltip>
-    )
-
     extras.push(<TokenMonitorButton key="token-monitor" />)
     extras.push(<SendMessageButton sendMessage={handleSendMessage} disabled={isSendDisabled} />)
 
@@ -663,18 +621,7 @@ export const InputbarCore: FC<InputbarCoreProps> = ({
     }
 
     return <>{extras}</>
-  }, [
-    planMode,
-    onTogglePlanMode,
-    text,
-    onTranslated,
-    isTranslating,
-    handleSendMessage,
-    isSendDisabled,
-    isLoading,
-    t,
-    onPause
-  ])
+  }, [text, onTranslated, isTranslating, handleSendMessage, isSendDisabled, isLoading, t, onPause])
 
   const quickPanelElement = config.enableQuickPanel ? <QuickPanelView setInputText={setText} /> : null
 
