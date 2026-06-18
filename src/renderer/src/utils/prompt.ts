@@ -109,7 +109,8 @@ const supportedVariables = [
   '{{system}}',
   '{{language}}',
   '{{arch}}',
-  '{{model_name}}'
+  '{{model_name}}',
+  '{{filesPath}}'
 ]
 
 export const containsSupportedVariables = (userSystemPrompt: string): boolean => {
@@ -198,6 +199,16 @@ export const replacePromptVariables = async (userSystemPrompt: string, modelName
     } catch (error) {
       logger.error('Failed to get model name:', error as Error)
       userSystemPrompt = userSystemPrompt.replace(/{{model_name}}/g, 'Unknown Model')
+    }
+  }
+
+  if (userSystemPrompt.includes('{{filesPath}}')) {
+    try {
+      const filesPath = store.getState().runtime.filesPath
+      userSystemPrompt = userSystemPrompt.replace(/{{filesPath}}/g, filesPath || '未设置文件库路径')
+    } catch (error) {
+      logger.error('Failed to get files path:', error as Error)
+      userSystemPrompt = userSystemPrompt.replace(/{{filesPath}}/g, '未设置文件库路径')
     }
   }
 

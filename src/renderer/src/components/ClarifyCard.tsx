@@ -92,11 +92,10 @@ export function ClarifyCard({ inline = false }: ClarifyCardProps) {
     if (!answer) return
 
     setSubmitted(true)
-    const success = resolveChoice(request.toolCallId, answer)
-    if (success) {
-      logger.info('[ClarifyCard] Choice resolved:', answer)
-      setTimeout(() => setRequest(null), 800)
-    }
+    resolveChoice(request.toolCallId, answer)
+    logger.info('[ClarifyCard] Choice resolved:', answer)
+    // 无论 resolveChoice 是否成功，都清除表单（已提交的状态不能继续交互）
+    setTimeout(() => setRequest(null), 800)
   }, [request, submitted, selected, multiSelected, textInput, isMultiple, isInput])
 
   const handleDismiss = useCallback(() => {
@@ -145,6 +144,7 @@ export function ClarifyCard({ inline = false }: ClarifyCardProps) {
       {isSingle && hasChoices && (
         <ChoicesList>
           <Radio.Group
+            disabled={submitted}
             value={selected}
             onChange={(e) => {
               setSelected(e.target.value)
@@ -170,9 +170,12 @@ export function ClarifyCard({ inline = false }: ClarifyCardProps) {
                 key={choice}
                 $selected={checked}
                 onClick={() => {
+                  if (submitted) return
                   setMultiSelected((prev) => (checked ? prev.filter((c) => c !== choice) : [...prev, choice]))
                 }}>
-                <Checkbox checked={checked}>{choice}</Checkbox>
+                <Checkbox checked={checked} disabled={submitted}>
+                  {choice}
+                </Checkbox>
               </MultiChoiceItem>
             )
           })}
@@ -184,9 +187,11 @@ export function ClarifyCard({ inline = false }: ClarifyCardProps) {
         <CustomInputArea>
           {isSingle && hasChoices && <CustomInputLabel>或自定义输入</CustomInputLabel>}
           <Input
+            disabled={submitted}
             placeholder={isInput ? '请输入...' : '输入你的想法...'}
             value={textInput}
             onChange={(e) => {
+              if (submitted) return
               setTextInput(e.target.value)
               if (e.target.value && isSingle) setSelected(null)
             }}
@@ -213,26 +218,21 @@ export function ClarifyCard({ inline = false }: ClarifyCardProps) {
 
   if (inline) {
     return (
-      <AnimatePresence>
-        {request && (
-          <motion.div
-            initial={{ opacity: 0, y: 12, scale: 0.97 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 12, scale: 0.97 }}
-            transition={{ duration: 0.2, ease: 'easeOut' }}
-            style={{
-              position: 'absolute',
-              bottom: 'calc(100% + 8px)',
-              left: 16,
-              right: 16,
-              zIndex: 50
-            }}>
-            <InlineCard ref={cardRef} onKeyDown={handleKeyDown}>
-              {cardContent}
-            </InlineCard>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <InlineWrapper>
+        <AnimatePresence>
+          {request && (
+            <motion.div
+              initial={{ opacity: 0, y: 12, scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 12, scale: 0.97 }}
+              transition={{ duration: 0.2, ease: 'easeOut' }}>
+              <InlineCard ref={cardRef} onKeyDown={handleKeyDown}>
+                {cardContent}
+              </InlineCard>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </InlineWrapper>
     )
   }
 
@@ -394,6 +394,10 @@ const ModalCard = styled(motion.div)`
 `
 
 // --- Inline Mode ---
+
+const InlineWrapper = styled.div`
+  width: 100%;
+`
 
 const InlineCard = styled.div`
   background: var(--color-background-opacity);

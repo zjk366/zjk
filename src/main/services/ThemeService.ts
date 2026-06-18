@@ -40,7 +40,12 @@ class ThemeService {
     }
 
     this.theme = theme
-    nativeTheme.themeSource = theme
+    // blackhole 是暗色主题，原生只支持 light/dark/system
+    if (theme === 'blackhole') {
+      nativeTheme.themeSource = 'dark'
+    } else {
+      nativeTheme.themeSource = theme
+    }
     configManager.setTheme(theme)
   }
 }

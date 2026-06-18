@@ -237,6 +237,18 @@ export async function buildStreamTextParams(
     systemPrompt = systemPrompt ? `${systemPrompt}\n\n${formPrompt}` : formPrompt
   }
 
+  // 全局文件保存指令：所有助手统一注入，不需要助手单独配置
+  // 用户没指定路径时默认存文件库，指定了则存指定位置
+  try {
+    const filesPath = store.getState().runtime.filesPath
+    if (filesPath) {
+      const fileSaveRule = `\n\n## 文件保存规则\n用户创建或生成的文件按以下规则保存：\n- **用户指定了保存路径** → 存到指定位置\n- **用户没指定路径** → 默认保存到文件库路径: ${filesPath}\n保存完成后在回复中提供文件路径给用户确认。`
+      systemPrompt = systemPrompt ? `${systemPrompt}\n${fileSaveRule}` : fileSaveRule
+    }
+  } catch (error) {
+    logger.error('Failed to inject file save rule:', error as Error)
+  }
+
   if (systemPrompt) {
     params.system = systemPrompt
   }

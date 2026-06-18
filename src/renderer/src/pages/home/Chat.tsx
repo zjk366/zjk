@@ -1,4 +1,5 @@
 import { loggerService } from '@logger'
+import { ClarifyCard } from '@renderer/components/ClarifyCard'
 import type { ContentSearchRef } from '@renderer/components/ContentSearch'
 import { ContentSearch } from '@renderer/components/ContentSearch'
 import DragOverlay from '@renderer/components/DragOverlay'
@@ -11,11 +12,11 @@ import { QuickPanelProvider } from '@renderer/components/QuickPanel'
 import { isEmbeddingModel, isRerankModel, isWebSearchModel } from '@renderer/config/models'
 import { useAssistant } from '@renderer/hooks/useAssistant'
 import { useChatContext } from '@renderer/hooks/useChatContext'
+import { DragUploadProvider, useDragUploadContext } from '@renderer/hooks/useDragUpload'
 import { useNavbarPosition, useSettings } from '@renderer/hooks/useSettings'
 import { useShortcut } from '@renderer/hooks/useShortcuts'
 import { useShowTopics } from '@renderer/hooks/useStore'
 import { useTimer } from '@renderer/hooks/useTimer'
-import { DragUploadProvider, useDragUploadContext } from '@renderer/hooks/useDragUpload'
 import { EVENT_NAMES, EventEmitter } from '@renderer/services/EventService'
 import FileManager from '@renderer/services/FileManager'
 import type { Assistant, FileMetadata, Model, Topic } from '@renderer/types'
@@ -34,8 +35,8 @@ import styled from 'styled-components'
 import ChatNavbar from './components/ChatNavBar'
 import Inputbar from './Inputbar/Inputbar'
 import ChatNavigation from './Messages/ChatNavigation'
-import MessageUserSelector from './Messages/MessageUserSelector'
 import Messages from './Messages/Messages'
+import MessageUserSelector from './Messages/MessageUserSelector'
 import Tabs from './Tabs'
 
 const logger = loggerService.withContext('Chat')
@@ -251,6 +252,7 @@ const Chat: FC<Props> = (props) => {
                   <DragUploadFileCard onClose={() => setDroppedFiles(undefined)} />
                   {messageNavigation === 'buttons' && <ChatNavigation containerId="messages" />}
                   <MessageUserSelector topic={props.activeTopic} />
+                  <ClarifyCard />
                   <Inputbar
                     assistant={assistant}
                     setActiveTopic={props.setActiveTopic}

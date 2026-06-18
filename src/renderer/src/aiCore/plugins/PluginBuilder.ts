@@ -124,7 +124,13 @@ export function buildPlugins({ provider, model, config }: BuildPluginsContext): 
     plugins.push(providerToolPlugin('urlContext', config.urlContextConfig))
   }
   // 2. 支持工具调用时添加搜索插件
-  if (config.isSupportedToolUse || config.isPromptToolUse) {
+  // 只有助手实际配置了搜索/知识库/记忆时才注册，避免多余的意图分析 LLM 调用
+  const hasSearchFeatures = !!(
+    config.assistant?.webSearchProviderId ||
+    config.assistant?.knowledge_bases?.length ||
+    config.assistant?.enableMemory
+  )
+  if ((config.isSupportedToolUse || config.isPromptToolUse) && hasSearchFeatures) {
     plugins.push(searchOrchestrationPlugin(config.assistant, config.topicId || ''))
   }
 
