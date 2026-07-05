@@ -10,6 +10,7 @@ import React, { useMemo } from 'react'
 import { useSelector } from 'react-redux'
 import styled from 'styled-components'
 
+import AskUserInline from '../Tools/AskUserInline'
 import BlockErrorFallback from './BlockErrorFallback'
 import CitationBlock from './CitationBlock'
 import CompactBlock from './CompactBlock'
@@ -162,14 +163,32 @@ const MessageBlockRenderer: React.FC<Props> = ({ blocks, message }) => {
           } else if (block[0].type === MessageBlockType.TOOL) {
             // ask_user 中轮转向：即使消息还在 processing 也必须渲染表单，
             // 因为它需要用户交互才能继续，藏在加载线下面用户永远看不到
-            const isAskUser =
-              !Array.isArray(block) && isToolBlock(block[0])
-                ? (block[0] as any).metadata?.rawMcpToolResponse?.tool?.name === 'ask_user'
-                : Array.isArray(block) && block.length > 0 && isToolBlock(block[0])
-                  ? (block[0] as any).metadata?.rawMcpToolResponse?.tool?.name === 'ask_user'
-                  : false
+            const firstBlock: MessageBlock = Array.isArray(block) ? block[0] : block
+            const toolResponse = isToolBlock(firstBlock) ? (firstBlock as any).metadata?.rawMcpToolResponse : undefined
+            const isAskUser = toolResponse?.tool?.name === 'ask_user'
+            const isProcessing = message.status.includes('ing')
 
-            if (!isAskUser && message.status.includes('ing')) {
+            if (isAskUser && isProcessing) {
+              // 直接渲染 AskUserInline，不走 ToolBlock→MessageTools→MessageTool 链路，
+              // 避免中间层组件在 processing 状态下引发 React Hook 不匹配错误
+              return (
+                <AnimatedBlockWrapper key={groupKey} enableAnimation={false}>
+                  <AskUserInline
+                    toolCallId={toolResponse.toolCallId || toolResponse.id}
+                    args={{
+                      question: toolResponse.arguments?.question || '',
+                      choices: toolResponse.arguments?.choices as string[] | undefined,
+                      allowFreeText: toolResponse.arguments?.allowFreeText as boolean | undefined,
+                      mode:
+                        (toolResponse.arguments?.mode as 'single' | 'multiple' | 'input') ||
+                        (toolResponse.arguments?.choices ? 'single' : 'input')
+                    }}
+                  />
+                </AnimatedBlockWrapper>
+              )
+            }
+
+            if (!isAskUser && isProcessing) {
               return (
                 <AnimatedBlockWrapper key={groupKey} enableAnimation={true}>
                   <ToolExecutingIndicator />
