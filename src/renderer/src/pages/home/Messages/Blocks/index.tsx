@@ -171,12 +171,21 @@ const MessageBlockRenderer: React.FC<Props> = ({ blocks, message }) => {
             if (isAskUser && isProcessing) {
               // 直接渲染 AskUserInline，不走 ToolBlock→MessageTools→MessageTool 链路，
               // 避免中间层组件在 processing 状态下引发 React Hook 不匹配错误
+              const askUserQuestion = toolResponse?.arguments?.question
+              if (!askUserQuestion) {
+                // 工具参数还未流式传输完成（question 为空），继续显示加载线
+                return (
+                  <AnimatedBlockWrapper key={groupKey} enableAnimation={true}>
+                    <ToolExecutingIndicator />
+                  </AnimatedBlockWrapper>
+                )
+              }
               return (
                 <AnimatedBlockWrapper key={groupKey} enableAnimation={false}>
                   <AskUserInline
                     toolCallId={toolResponse.toolCallId || toolResponse.id}
                     args={{
-                      question: toolResponse.arguments?.question || '',
+                      question: askUserQuestion,
                       choices: toolResponse.arguments?.choices as string[] | undefined,
                       allowFreeText: toolResponse.arguments?.allowFreeText as boolean | undefined,
                       mode:
