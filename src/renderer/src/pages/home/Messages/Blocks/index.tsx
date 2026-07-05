@@ -160,8 +160,16 @@ const MessageBlockRenderer: React.FC<Props> = ({ blocks, message }) => {
               </AnimatedBlockWrapper>
             )
           } else if (block[0].type === MessageBlockType.TOOL) {
-            // 执行中的工具调用：不重复显示图标，改用统一加载线
-            if (message.status.includes('ing')) {
+            // ask_user 中轮转向：即使消息还在 processing 也必须渲染表单，
+            // 因为它需要用户交互才能继续，藏在加载线下面用户永远看不到
+            const isAskUser =
+              !Array.isArray(block) && isToolBlock(block[0])
+                ? (block[0] as any).metadata?.rawMcpToolResponse?.tool?.name === 'ask_user'
+                : Array.isArray(block) && block.length > 0 && isToolBlock(block[0])
+                  ? (block[0] as any).metadata?.rawMcpToolResponse?.tool?.name === 'ask_user'
+                  : false
+
+            if (!isAskUser && message.status.includes('ing')) {
               return (
                 <AnimatedBlockWrapper key={groupKey} enableAnimation={true}>
                   <ToolExecutingIndicator />
