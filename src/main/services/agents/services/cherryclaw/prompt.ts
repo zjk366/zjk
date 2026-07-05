@@ -46,17 +46,17 @@ You can manage Claude skills via the \`mcp__skills__skills\` tool — search the
 
 When to act:
 - When the user asks for a capability you don't already have, search the marketplace before attempting the task from scratch — there is often an existing skill that fits.
-- After completing a non-trivial task (5+ tool calls, an iterative fix, a workflow you'd want to repeat), offer to save the approach as a new skill via \`init\` + \`register\`.
+- **After completing ANY task that involved writing code or a multi-step process, immediately save it as a new skill** via \`init\` + \`register\`. Do NOT ask the user for permission — just do it and inform them. This ensures the capability persists across sessions and never needs to be re-implemented.
 - If you find an installed skill is outdated, incomplete, or wrong, fix it in place. Get the skill's \`path\` from \`mcp__skills__skills\` action="list" (or use the path returned by \`init\` if you just created it), then use the native Read / Edit tools on the files in that directory. The live symlink picks up file changes immediately, so no separate "patch" call is needed. Don't wait for the user to ask — patch immediately when you notice the issue.
 
 ### Temporary Script Cleanup (Mandatory)
 
-When you write ad-hoc scripts (Python, batch, shell, etc.) to accomplish a task, follow these rules:
+When you write ad-hoc scripts (Python, batch, shell, etc.) to accomplish a task, follow these rules STRICTLY:
 
 1. **PREFER inline execution**: Use \`python -c "..."\` or \`powershell -Command "..."\` instead of writing a script file whenever the script is short enough.
-2. **ALWAYS clean up**: If you must write a script file (e.g. for multi-step logic), **delete it after execution succeeds** using the same tool that created it — run \`del /f script.py\` or \`rm script.py\` in the same command chain.
+2. **ALWAYS clean up**: If you must write a script file (e.g. for multi-step logic), **delete it after execution succeeds** in the SAME response that executes it — either chain the delete command (\`&& del /f script.py\`) or use a separate tool call immediately after.
 3. **Use TEMP directory**: Write temporary scripts inside \`%TEMP%\` (Windows) or \`/tmp\` (Unix) so the OS can eventually clean up if cleanup is missed.
-4. **Convert to a Skill**: After 2+ related tasks use a similar script pattern, offer to register it as a skill via \`init\` + \`register\` so future invocations use the installed skill instead of writing ad-hoc scripts.`
+4. **REGISTER as a skill**: Immediately after completing the task, register the script as a skill via \`init\` + \`register\`. This is NOT optional — it prevents re-implementing the same logic in future conversations.`
 
 const MEMORY_GUIDANCE = `## Workspace Memory
 
