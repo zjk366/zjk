@@ -12,7 +12,7 @@
 import { resolveChoice } from '@renderer/aiCore/utils/clarify'
 import { Button, Checkbox, Input, Radio } from 'antd'
 import { HelpCircle, Send } from 'lucide-react'
-import { memo, useCallback, useMemo, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import styled from 'styled-components'
 
 export interface AskUserArgs {
@@ -34,6 +34,23 @@ const AskUserInline = memo(function AskUserInline({ toolCallId, args, resultText
   const [multiSelected, setMultiSelected] = useState<string[]>([])
   const [textInput, setTextInput] = useState('')
   const [submitted, setSubmitted] = useState(false)
+  const [resolvedAnswer, setResolvedAnswer] = useState<string | null>(null)
+
+  // 监听 clarify-resolved 事件：当 AI SDK 流已结束而 tool-result 未到达时，
+  // 手动将表单切换为结果展示状态
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { toolCallId: string; answer: string } | undefined
+      if (detail?.toolCallId === toolCallId && detail?.answer) {
+        setResolvedAnswer(detail.answer)
+      }
+    }
+    window.addEventListener('clarify-resolved', handler)
+    return () => window.removeEventListener('clarify-resolved', handler)
+  }, [toolCallId])
+
+  // 合成 resultText：优先用 props，其次用本地 resolvedAnswer
+  const effectiveResultText = resultText ?? (resolvedAnswer ? `用户选择了: ${resolvedAnswer}` : undefined)
 
   const effectiveMode = useMemo<'single' | 'multiple' | 'input'>(() => {
     if (args.mode) return args.mode
@@ -68,14 +85,14 @@ const AskUserInline = memo(function AskUserInline({ toolCallId, args, resultText
   }, [submitted, toolCallId, isMultiple, isInput, selected, multiSelected, textInput])
 
   // 已得到结果 → 显示结果文本（必须在所有 hooks 之后）
-  if (resultText) {
+  if (effectiveResultText) {
     return (
       <Container>
         <Header>
           <HelpCircle size={14} />
           <Title>{args.question}</Title>
         </Header>
-        <ResultText>{resultText.replace(/^用户选择了: /, '')}</ResultText>
+        <ResultText>{effectiveResultText.replace(/^用户选择了: /, '')}</ResultText>
       </Container>
     )
   }

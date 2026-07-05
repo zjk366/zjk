@@ -87,6 +87,17 @@ export function resolveChoice(toolCallId: string, answer: string): boolean {
     ],
     isError: false
   })
+
+  // AI SDK v6 流式模式：ask_user 的 execute 不阻塞流，
+  // tool-call 发出后流可能已结束（finish reason: 'tool-calls'），
+  // 导致 tool-result 事件永远不会到达流处理器，消息卡在 processing。
+  // 因此手动派发事件通知 UI 层更新块状态和消息状态。
+  window.dispatchEvent(
+    new CustomEvent('clarify-resolved', {
+      detail: { toolCallId, answer }
+    })
+  )
+
   return true
 }
 

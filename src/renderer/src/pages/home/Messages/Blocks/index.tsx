@@ -6,7 +6,7 @@ import type { ImageMessageBlock, Message, MessageBlock } from '@renderer/types/n
 import { MessageBlockStatus, MessageBlockType } from '@renderer/types/newMessage'
 import { isMainTextBlock, isMessageProcessing, isToolBlock, isVideoBlock } from '@renderer/utils/messageUtils/is'
 import { AnimatePresence, motion, type Variants } from 'motion/react'
-import React, { useMemo } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { useSelector } from 'react-redux'
 import styled from 'styled-components'
 
@@ -123,6 +123,14 @@ const MessageBlockRenderer: React.FC<Props> = ({ blocks, message }) => {
 
   // Check if message is still processing
   const isProcessing = isMessageProcessing(message)
+  // ask_user 已提交（用户点击确认后，AI SDK 流可能已结束，
+  // tool-result 不会到达，消息卡在 processing）
+  const [askUserResolved, setAskUserResolved] = useState(false)
+  useEffect(() => {
+    const handler = () => setAskUserResolved(true)
+    window.addEventListener('clarify-resolved', handler)
+    return () => window.removeEventListener('clarify-resolved', handler)
+  }, [])
 
   return (
     <AnimatePresence mode="sync">
@@ -295,7 +303,7 @@ const MessageBlockRenderer: React.FC<Props> = ({ blocks, message }) => {
           </AnimatedBlockWrapper>
         )
       })}
-      {isProcessing && (
+      {isProcessing && !askUserResolved && (
         <AnimatedBlockWrapper key="message-loading-placeholder" enableAnimation={true}>
           <PlaceholderBlock
             block={{
