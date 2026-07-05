@@ -187,7 +187,7 @@ const MessageBlockRenderer: React.FC<Props> = ({ blocks, message }) => {
                     args={{
                       question: askUserQuestion,
                       choices: toolResponse.arguments?.choices as string[] | undefined,
-                      allowFreeText: toolResponse.arguments?.allowFreeText as boolean | undefined,
+                      allowFreeText: toolResponse.arguments?.allowFreeText !== false,
                       mode:
                         (toolResponse.arguments?.mode as 'single' | 'multiple' | 'input') ||
                         (toolResponse.arguments?.choices ? 'single' : 'input')
