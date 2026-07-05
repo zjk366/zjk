@@ -62,15 +62,17 @@ export function setupToolsConfig(
 
   // ask_user — 中轮转向工具：向用户提问并等待选择/输入
   // 当任务需要用户决策、确认方向或提供额外信息时使用。
-  // 与 Claude Code agent 的 AskUserQuestion 不同，此工具走通用 Promise 挂起模式，
-  // 不经过权限系统，所有模型均可调用。
+  // 注意：AI SDK v6 流式模式不阻塞工具执行，每次调用 ask_user
+  // 后 AI 会立即继续生成。因此一次工具调用只能问一个问题，
+  // 用 form-answer 事件发送给 AI 开启下一轮对话。
+  // AI 不得在一次回复中连续调用多次 ask_user。
   tools['ask_user'] = tool({
     description:
-      '向用户提问获取决策或信息。当任务需要用户选择方向、确认细节或提供缺失信息时使用。不要猜测用户的偏好，直接问。',
+      '向用户提问获取决策或信息。当任务需要用户选择方向、确认细节或提供缺失信息时使用。不要猜测用户的偏好，直接问。\n\n重要限制：一次只能问 ONE 个问题。问完必须等待用户回答后再问下一个。绝对不要在一次回复中连续调用多次 ask_user 工具——用户无法同时回答多个问题。',
     inputSchema: jsonSchema({
       type: 'object',
       properties: {
-        question: { type: 'string', description: '要问用户的完整问题' },
+        question: { type: 'string', description: '要问用户的完整问题（一次只问一个问题，不要分段问多个问题）' },
         choices: {
           type: 'array',
           items: { type: 'string' },
