@@ -259,6 +259,26 @@ export async function handleExecuteTool(args: unknown) {
     logger.warn('UndoVault backup failed (non-blocking):', err as Error)
   }
 
+  // ── 解析 Windows shell 命令，避免 cmd.exe 引号吞噬 ──
+  function resolveWindowsShell(cmd: string): { command: string; args: string[] } {
+    const trimmed = cmd.trimStart()
+
+    // PowerShell 命令直连 powershell.exe，绕开 cmd.exe 的双层解析
+    if (/^powershell(\s+|$)/i.test(trimmed)) {
+      const rest = trimmed.replace(/^powershell\s+/i, '')
+      return { command: 'powershell.exe', args: ['-NoProfile', '-NoLogo', '-Command', rest] }
+    }
+
+    // pwsh (PowerShell Core) 同理
+    if (/^pwsh(\s+|$)/i.test(trimmed)) {
+      const rest = trimmed.replace(/^pwsh\s+/i, '')
+      return { command: 'pwsh.exe', args: ['-NoProfile', '-NoLogo', '-Command', rest] }
+    }
+
+    // cmd.exe：用 /d 禁用 AutoRun 避免干扰，直接传递命令字符串
+    return { command: 'cmd.exe', args: ['/d', '/c', command] }
+  }
+
   // ── 执行命令（实时流推送） ───────────────────────────
   const timeoutMs = Math.min(timeout || DEFAULT_TIMEOUT_MS, 120_000) // 最大 2 分钟
   const sessionId = `term_${Date.now()}`
@@ -269,22 +289,23 @@ export async function handleExecuteTool(args: unknown) {
   return new Promise((resolve) => {
     logger.info(`Executing: ${command} (cwd=${workDir}, timeout=${timeoutMs}ms)`)
 
-    const child = spawn(
-      process.platform === 'win32' ? process.env.COMSPEC || 'cmd.exe' : '/bin/bash',
-      process.platform === 'win32' ? ['/c', command] : ['-c', command],
-      {
-        cwd: workDir,
-        windowsHide: true,
-        env: {
-          ...process.env,
-          PYTHONIOENCODING: 'utf-8'
-        }
+    const { command: shellCmd, args: shellArgs } =
+      process.platform === 'win32' ? resolveWindowsShell(command) : { command: '/bin/bash', args: ['-c', command] }
+
+    const child = spawn(shellCmd, shellArgs, {
+      cwd: workDir,
+      windowsHide: true,
+      env: {
+        ...process.env,
+        PYTHONIOENCODING: 'utf-8'
       }
-    )
+    })
 
     let stdout = ''
     let stderr = ''
     let killed = false
+    let stdoutTruncated = false
+    let stderrTruncated = false
 
     const timer = setTimeout(() => {
       killed = true
@@ -293,20 +314,41 @@ export async function handleExecuteTool(args: unknown) {
 
     child.stdout?.on('data', (data: Buffer) => {
       const chunk = decodeBuffer(data)
+      // 已超限则丢弃数据，不再累积
+      if (stdout.length >= MAX_OUTPUT_LENGTH) {
+        if (!stdoutTruncated) {
+          stdoutTruncated = true
+          pushTermLine(
+            command,
+            `[stdout 已达 ${(MAX_OUTPUT_LENGTH / 1000).toFixed(0)}KB 上限，已截断]`,
+            'stderr',
+            sessionId
+          )
+        }
+        return
+      }
       stdout += chunk
       // 逐行推送实时输出
       const lines = chunk.split('\n').filter(Boolean)
       for (const line of lines) {
         pushTermLine(command, line, 'stdout', sessionId)
       }
-      if (stdout.length > MAX_OUTPUT_LENGTH) {
-        pushTermLine(command, '... [输出已截断]', 'stderr', sessionId)
-        child.kill('SIGTERM')
-      }
     })
 
     child.stderr?.on('data', (data: Buffer) => {
       const chunk = decodeBuffer(data)
+      if (stderr.length >= MAX_OUTPUT_LENGTH) {
+        if (!stderrTruncated) {
+          stderrTruncated = true
+          pushTermLine(
+            command,
+            `[stderr 已达 ${(MAX_OUTPUT_LENGTH / 1000).toFixed(0)}KB 上限，已截断]`,
+            'stderr',
+            sessionId
+          )
+        }
+        return
+      }
       stderr += chunk
       const lines = chunk.split('\n').filter(Boolean)
       for (const line of lines) {
@@ -325,11 +367,17 @@ export async function handleExecuteTool(args: unknown) {
       if (stdout.trim()) {
         output.push('── stdout ──')
         output.push(stdout.trimEnd())
+        if (stdoutTruncated) {
+          output.push(`┄ stdout 超出 ${(MAX_OUTPUT_LENGTH / 1000).toFixed(0)}KB 上限，已截断，仅显示开头部分`)
+        }
       }
 
       if (stderr.trim()) {
         output.push('── stderr ──')
         output.push(stderr.trimEnd())
+        if (stderrTruncated) {
+          output.push(`┄ stderr 超出 ${(MAX_OUTPUT_LENGTH / 1000).toFixed(0)}KB 上限，已截断，仅显示开头部分`)
+        }
       }
 
       output.push('')
@@ -337,6 +385,9 @@ export async function handleExecuteTool(args: unknown) {
         output.push(`! 命令超时 (${timeoutMs}ms)` + (code !== null ? `, 退出码: ${code}` : ''))
       } else {
         output.push(`退出码: ${code ?? '未知'}`)
+      }
+      if (stdoutTruncated || stderrTruncated) {
+        output.push(`! 部分输出已截断，总大小: stdout=${stdout.length}bytes / stderr=${stderr.length}bytes`)
       }
 
       logger.info(`Command completed (exit=${code}, stdout=${stdout.length}bytes, stderr=${stderr.length}bytes)`)

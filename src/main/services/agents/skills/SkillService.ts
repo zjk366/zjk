@@ -634,19 +634,53 @@ export class SkillService {
   // ===========================================================================
 
   private async cloneRepository(repoUrl: string, destDir: string): Promise<void> {
-    const gitCommand = (await findExecutableInEnv('git')) ?? 'git'
+    // 收集所有可能的 git 路径，逐个尝试
+    const gitCandidates = [
+      await findExecutableInEnv('git'),
+      'git',
+      ...(process.platform === 'win32'
+        ? [
+            'C:\\Program Files\\Git\\bin\\git.exe',
+            'C:\\Program Files (x86)\\Git\\bin\\git.exe',
+            path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Git', 'bin', 'git.exe')
+          ]
+        : [])
+    ].filter((p): p is string => !!p)
 
-    const branch = await this.resolveDefaultBranch(gitCommand, repoUrl)
-    if (branch) {
-      await executeCommand(gitCommand, ['clone', '--depth', '1', '--branch', branch, '--', repoUrl, destDir])
-      return
+    // 去重
+    const seen = new Set<string>()
+    const uniqueCandidates = gitCandidates.filter((p) => {
+      const key = p.toLowerCase()
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+
+    let lastError: Error | null = null
+
+    for (const gitCommand of uniqueCandidates) {
+      try {
+        const branch = await this.resolveDefaultBranch(gitCommand, repoUrl)
+        if (branch) {
+          await executeCommand(gitCommand, ['clone', '--depth', '1', '--branch', branch, '--', repoUrl, destDir])
+          return
+        }
+
+        await executeCommand(gitCommand, ['clone', '--depth', '1', '--', repoUrl, destDir])
+        return
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err))
+        logger.warn('git clone failed, trying next candidate', {
+          gitCommand,
+          repoUrl,
+          error: lastError.message
+        })
+        // 尝试清理可能的残留目录
+        await this.safeRemoveDirectory(destDir).catch(() => {})
+      }
     }
 
-    try {
-      await executeCommand(gitCommand, ['clone', '--depth', '1', '--', repoUrl, destDir])
-    } catch {
-      await executeCommand(gitCommand, ['clone', '--depth', '1', '--branch', 'master', '--', repoUrl, destDir])
-    }
+    throw lastError ?? new Error(`Git not found and clone failed for: ${repoUrl}`)
   }
 
   private async resolveDefaultBranch(command: string, repoUrl: string): Promise<string | null> {

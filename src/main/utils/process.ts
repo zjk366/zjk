@@ -421,10 +421,16 @@ export async function findExecutableInEnv(name: string): Promise<string | null> 
 
 /**
  * Spawn a process with proper Windows handling for .cmd files and npm shims.
- * On Windows, .cmd/.bat files need `shell: true` so Node.js delegates quoting
- * to cmd.exe via `/d /s /c "..."`. Manually constructing `cmd.exe /c` args
- * breaks when both the command path and arguments contain spaces (cmd.exe's
- * quote-stripping rule 2 kicks in and mangles the command line).
+ *
+ * On Windows, manually constructs `cmd.exe /d /s /c "..."` with `shell: false`
+ * to retain full control over arg quoting. This avoids cmd.exe's unpredictable
+ * quote-stripping rules (rule #2 specifically) that mangle paths with spaces
+ * when both the command path and arguments contain them.
+ *
+ * Before: `shell: true` → Node.js delegated quoting to cmd.exe → spaces in
+ *   path+args caused cmd.exe to split arguments incorrectly.
+ * After:  Manual cmd.exe construction with `shell: false` → each arg is quoted
+ *   independently → paths with spaces are preserved correctly.
  */
 export function crossPlatformSpawn(
   command: string,
@@ -434,15 +440,25 @@ export function crossPlatformSpawn(
   // Always hide console window on Windows
   const baseOptions: SpawnOptions = { ...options, windowsHide: true, stdio: options.stdio ?? 'pipe' }
 
-  if (isWin && !command.toLowerCase().endsWith('.exe')) {
-    // When shell: true, Node passes the command to cmd.exe as:
-    //   cmd /d /s /c "command arg1 arg2"
-    // If the command path contains spaces (e.g. C:\Program Files\nodejs\npm.cmd),
-    // cmd.exe splits on the space. Wrapping in quotes fixes this:
-    //   cmd /d /s /c ""C:\Program Files\nodejs\npm.cmd" arg1 arg2"
-    const quotedCommand = command.includes(' ') && !command.startsWith('"') ? `"${command}"` : command
-    return spawn(quotedCommand, args, { ...baseOptions, shell: true })
+  if (isWin) {
+    // Manually quote each arg that contains spaces or special chars
+    const safeArgs = args.map((a) => {
+      if (!a) return a
+      // cmd.exe special chars that require quoting
+      const needsQuoting = /[\s&|^()%!<>[\]{},;=+`~]/.test(a)
+      if (needsQuoting && !a.startsWith('"')) {
+        return `"${a.replace(/"/g, '""')}"`
+      }
+      return a
+    })
+
+    // Build the full command line for cmd.exe /c
+    // Use /d to disable AutoRun, /s to preserve quoted args, /c to run
+    const cmdExe = process.env.COMSPEC || 'cmd.exe'
+    const cmdLine = [command, ...safeArgs].join(' ')
+    return spawn(cmdExe, ['/d', '/s', '/c', cmdLine], baseOptions)
   }
+
   return spawn(command, args, baseOptions)
 }
 

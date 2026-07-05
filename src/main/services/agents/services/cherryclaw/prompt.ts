@@ -89,6 +89,17 @@ You have one web tool: \`mcp__exa__web_search_exa\` for structured search. It re
 
 If the user explicitly needs browser automation (filling forms, clicking, navigating live pages), tell them this capability is not currently available rather than attempting a workaround.`
 
+const WINDOWS_PATH_GUIDANCE = `## Windows Path Handling (Critical)
+
+When executing commands on Windows, paths with spaces, Chinese characters, or special characters cause quoting issues. Follow these rules strictly:
+
+1. **PREFER wildcards over full paths**: Use \`*.docx\` / \`*需求*.docx\` instead of exact filenames with spaces.
+2. **PREFER relative paths**: cd to the directory first, then use relative paths to avoid drive-letter quoting entirely.
+3. **PowerShell quoting**: Use single quotes \`'\` for PowerShell paths: \`Get-ChildItem 'C:\\path with spaces\\file.docx'\`
+4. **cmd.exe quoting**: When using cmd (non-PowerShell), wrap paths in double quotes: \`dir "C:\\path with spaces\\"\`
+5. **Short paths**: Use \`dir /x\` to get 8.3 short names (\`C:\\PROGRA~1\\\`) for problematic paths.
+6. **TOOL FAILURE ESCAPE**: If a command fails 2+ times in a row, **stop tweaking syntax** and switch approaches entirely — use a different tool (e.g. \`Glob\` instead of \`execute_command\`), a different shell, or decompose the problem differently. Never iterate on quoting more than twice.`
+
 /**
  * Compose the tool-strategy guidance for an agent based on which MCP servers
  * have actually been injected. The skills, memory, and web-tools sections are
@@ -102,6 +113,9 @@ function composeToolGuidance(opts: { hasClaw: boolean }): string {
   parts.push(SKILLS_GUIDANCE)
   parts.push(MEMORY_GUIDANCE)
   parts.push(WEB_TOOLS_GUIDANCE)
+  if (process.platform === 'win32') {
+    parts.push(WINDOWS_PATH_GUIDANCE)
+  }
   return parts.join('\n\n')
 }
 
