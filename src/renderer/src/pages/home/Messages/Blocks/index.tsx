@@ -178,22 +178,15 @@ const MessageBlockRenderer: React.FC<Props> = ({ blocks, message }) => {
 
             if (isAskUser && isProcessing) {
               // 直接渲染 AskUserInline，不走 ToolBlock→MessageTools→MessageTool 链路，
-              // 避免中间层组件在 processing 状态下引发 React Hook 不匹配错误
-              const askUserQuestion = toolResponse?.arguments?.question
-              if (!askUserQuestion) {
-                // 工具参数还未流式传输完成（question 为空），继续显示加载线
-                return (
-                  <AnimatedBlockWrapper key={groupKey} enableAnimation={true}>
-                    <ToolExecutingIndicator />
-                  </AnimatedBlockWrapper>
-                )
-              }
+              // 避免中间层组件在 processing 状态下引发 React Hook 不匹配错误；
+              // 即使 question 为空也渲染（流式参数 JSON.parse 可能失败导致 question 不更新），
+              // 空表单比无限加载线好——用户至少能看到提交按钮并输入。
               return (
                 <AnimatedBlockWrapper key={groupKey} enableAnimation={false}>
                   <AskUserInline
                     toolCallId={toolResponse.toolCallId || toolResponse.id}
                     args={{
-                      question: askUserQuestion,
+                      question: toolResponse?.arguments?.question || '',
                       choices: toolResponse.arguments?.choices as string[] | undefined,
                       allowFreeText: toolResponse.arguments?.allowFreeText !== false,
                       mode:

@@ -250,8 +250,28 @@ export class ToolCallChunkHandler {
     const existingToolCall = this.activeToolCalls.get(toolCallId)
     if (existingToolCall?.streamingArgs !== undefined) {
       // Tool call was already processed via streaming events (tool-input-start/delta/end)
-      // Update args if needed, but don't emit duplicate pending chunk
+      // Update args locally
       existingToolCall.args = args
+      // When streaming JSON.parse failed (existingToolCall.args is still a raw string),
+      // the block metadata still has the unparsed/partial raw string — or missing
+      // arguments entirely. Re-emit a pending chunk so the block gets the correct
+      // fully-parsed arguments from the complete tool-call event.
+      const hasArgs = args !== undefined && args !== null
+      const streamingWasRaw = existingToolCall?.args && typeof existingToolCall.args === 'string'
+      if (hasArgs || streamingWasRaw) {
+        this.onChunk({
+          type: ChunkType.MCP_TOOL_PENDING,
+          responses: [
+            {
+              id: toolCallId,
+              tool: existingToolCall.tool,
+              arguments: args,
+              status: 'pending',
+              toolCallId
+            }
+          ]
+        })
+      }
       return
     }
 
@@ -495,7 +515,9 @@ function extractImagesFromToolOutput(output: unknown): string[] {
  * 从工具输出中提取非图片文件（文档、PDF、表格等）
  * 返回 { name, mimeType, data } 数组
  */
-function extractFilesFromToolOutput(output: unknown): { type: 'base64'; name: string; mimeType: string; data: string }[] {
+function extractFilesFromToolOutput(
+  output: unknown
+): { type: 'base64'; name: string; mimeType: string; data: string }[] {
   if (!output) {
     return []
   }
@@ -517,7 +539,11 @@ function extractFilesFromToolOutput(output: unknown): { type: 'base64'; name: st
         })
       }
       // type: 'resource' 且 URI 是 data: URL 且非图片
-      if (c.type === 'resource' && cres.resource?.uri?.startsWith('data:') && !isImageMime(cres.resource?.mimeType ?? '')) {
+      if (
+        c.type === 'resource' &&
+        cres.resource?.uri?.startsWith('data:') &&
+        !isImageMime(cres.resource?.mimeType ?? '')
+      ) {
         const dataUri = cres.resource.uri
         const commaIdx = dataUri.indexOf(',')
         results.push({
