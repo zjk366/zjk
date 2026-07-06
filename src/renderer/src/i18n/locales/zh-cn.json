@@ -1222,6 +1222,9 @@
         },
         "context": "清除上下文"
       },
+      "warning": {
+        "response_truncated": "回复已达到 Token 上限，内容可能不完整"
+      },
       "quote": "引用",
       "regenerate": {
         "model": "切换模型"
@@ -5893,6 +5896,7 @@
   },
   "title": {
     "apps": "小程序",
+    "blackhole": "Blackhole",
     "code": "Code",
     "files": "文件",
     "home": "blackhole工作区",

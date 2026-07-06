@@ -29,6 +29,7 @@ import MessageErrorBoundary from './MessageErrorBoundary'
 import MessageHeader from './MessageHeader'
 import MessageMenubar from './MessageMenubar'
 import MessageOutline from './MessageOutline'
+import MessageTokens from './MessageTokens'
 
 interface Props {
   message: Message
@@ -230,15 +231,18 @@ const MessageItem: FC<Props> = ({
                 <MessageContent message={message} />
               </MessageErrorBoundary>
             </MessageContentContainer>
-            {showMenubar && (
-              <MessageFooter className="MessageFooter">
-                <HorizontalScrollContainer
-                  classNames={{
-                    content: cn(
-                      'flex-1 items-center justify-between',
-                      isLastMessage && messageStyle === 'plain' ? 'flex-row-reverse' : 'flex-row'
-                    )
-                  }}>
+            <MessageFooter className="MessageFooter">
+              <HorizontalScrollContainer
+                classNames={{
+                  content: cn(
+                    'flex-1 items-center justify-between',
+                    showMenubar && isLastMessage && messageStyle === 'plain' ? 'flex-row-reverse' : 'flex-row'
+                  )
+                }}>
+                {/* 处理中显示进度条，完成后显示完整菜单 */}
+                {isProcessing ? (
+                  <MessageTokens message={message} />
+                ) : showMenubar ? (
                   <MessageMenubar
                     message={message}
                     assistant={assistant}
@@ -252,9 +256,9 @@ const MessageItem: FC<Props> = ({
                     setModel={setModel}
                     onUpdateUseful={onUpdateUseful}
                   />
-                </HorizontalScrollContainer>
-              </MessageFooter>
-            )}
+                ) : null}
+              </HorizontalScrollContainer>
+            </MessageFooter>
           </>
         )}
       </MessageContainer>

@@ -6,6 +6,8 @@ import { loggerService } from '@logger'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Tool } from '@modelcontextprotocol/sdk/types.js'
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from '@modelcontextprotocol/sdk/types.js'
+import { IpcChannel } from '@shared/IpcChannel'
+import type { MCPServer } from '@types'
 import { app, BrowserWindow } from 'electron'
 
 const logger = loggerService.withContext('MCPServer:Assistant')
@@ -127,6 +129,74 @@ const INSTALL_MCP_PACKAGE_TOOL: Tool = {
 const healthCache = new Map<string, { result: unknown; timestamp: number }>()
 const HEALTH_CACHE_TTL = 30_000 // 30 seconds
 
+/** Format command + args into a readable command-line string */
+function argsToString(cmd: string, args: string[]): string {
+  const parts = [cmd, ...args]
+  return parts.some((p) => p.includes(' ') || p.includes('"'))
+    ? parts.map((p) => (p.includes(' ') ? `"${p}"` : p)).join(' ')
+    : parts.join(' ')
+}
+
+const MANAGE_MCP_SERVER_TOOL: Tool = {
+  name: 'manage_mcp_server',
+  description:
+    'Add, list, or remove MCP servers in Cherry Studio. ' +
+    'Use this when you need to register an installed MCP server (npm/pip/uvx/binary) ' +
+    "or check what's already configured.\n\n" +
+    "For 'add': registers a new MCP server by its name and command. " +
+    'The server will be saved to Redux store, synced to Skills management room, ' +
+    'and auto-connected to Hub for immediate use.\n' +
+    "For 'list': returns all currently configured MCP servers with their status.\n" +
+    "For 'remove': unregisters an MCP server by name.",
+  inputSchema: {
+    type: 'object',
+    properties: {
+      action: {
+        type: 'string',
+        enum: ['add', 'list', 'remove'],
+        description: 'Action to perform'
+      },
+      name: {
+        type: 'string',
+        description:
+          "MCP server name. Required for 'add' and 'remove'. " +
+          'Must be unique, use the package name or a descriptive identifier.'
+      },
+      command: {
+        type: 'string',
+        description:
+          "Command to start the MCP server. Required for 'add'. " +
+          'Examples: "npx" (npm packages), "uvx" (Python/uv packages), ' +
+          '"python" (Python module), or a direct binary path. ' +
+          'For pip-installed packages, use "uvx" or the binary name directly.'
+      },
+      args: {
+        type: 'array',
+        items: { type: 'string' },
+        description:
+          "Command arguments. Required for 'add'. " +
+          'Examples: ["-y", "@modelcontextprotocol/server-filesystem"] for npx, ' +
+          '["mcp-documents-reader"] for uvx.'
+      },
+      description: {
+        type: 'string',
+        description: "Human-readable description. Optional for 'add'."
+      },
+      server_type: {
+        type: 'string',
+        enum: ['stdio', 'sse', 'streamableHttp'],
+        description: "Server transport type (default 'stdio'). Optional for 'add'."
+      },
+      env: {
+        type: 'object',
+        additionalProperties: { type: 'string' },
+        description: "Environment variables. Optional for 'add'."
+      }
+    },
+    required: ['action']
+  }
+}
+
 class AssistantServer {
   public mcpServer: McpServer
 
@@ -147,7 +217,7 @@ class AssistantServer {
 
   private setupHandlers() {
     this.mcpServer.server.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools: [NAVIGATE_TOOL, DIAGNOSE_TOOL, SEARCH_NPM_MCP_TOOL, INSTALL_MCP_PACKAGE_TOOL]
+      tools: [NAVIGATE_TOOL, DIAGNOSE_TOOL, SEARCH_NPM_MCP_TOOL, INSTALL_MCP_PACKAGE_TOOL, MANAGE_MCP_SERVER_TOOL]
     }))
 
     this.mcpServer.server.setRequestHandler(CallToolRequestSchema, async (request) => {
@@ -164,6 +234,8 @@ class AssistantServer {
             return await this.searchNpmMcp(args as { keyword: string; size?: number })
           case 'install_mcp_package':
             return await this.installMcpPackage(args as { package_name: string; description?: string })
+          case 'manage_mcp_server':
+            return await this.manageMcpServer(args as Record<string, unknown>)
           default:
             throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${toolName}`)
         }
@@ -896,6 +968,149 @@ class AssistantServer {
         content: [{ type: 'text' as const, text: `Installation failed: ${msg}` }],
         isError: true
       }
+    }
+  }
+
+  /**
+   * Manage MCP servers: add / list / remove
+   */
+  private async manageMcpServer(args: Record<string, unknown>) {
+    const action = args.action as string | undefined
+    if (!action) {
+      return { content: [{ type: 'text' as const, text: 'Action is required (add/list/remove)' }], isError: true }
+    }
+
+    switch (action) {
+      case 'add': {
+        const name = args.name as string | undefined
+        const command = args.command as string | undefined
+        const rawArgs = args.args as string[] | undefined
+        const description = (args.description as string) || ''
+        const serverType = (args.server_type as string) || 'stdio'
+        const env = args.env as Record<string, string> | undefined
+
+        if (!name || !command) {
+          return {
+            content: [{ type: 'text' as const, text: "'name' and 'command' are required for add action" }],
+            isError: true
+          }
+        }
+
+        const serverId = `mcp_${name.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}`
+        const mcpServer: MCPServer = {
+          id: serverId,
+          name,
+          description: description || `${name} MCP 服务`,
+          command,
+          args: rawArgs || [],
+          env: env || {},
+          type: serverType as 'stdio' | 'sse' | 'streamableHttp',
+          isActive: true,
+          installSource: 'manual',
+          isTrusted: true,
+          installedAt: Date.now(),
+          trustedAt: Date.now()
+        }
+
+        // Send to renderer via IPC — renderer handles Redux dispatch + Skills sync
+        const wins = BrowserWindow.getAllWindows()
+        if (wins.length === 0) {
+          return {
+            content: [{ type: 'text' as const, text: 'No window available to register MCP server' }],
+            isError: true
+          }
+        }
+
+        wins[0].webContents.send(IpcChannel.Mcp_AddServer, mcpServer)
+
+        // Construct the startup command for reference
+        const cmdStr = argsToString(command, rawArgs || [])
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: [
+                `✅ MCP 服务器已添加: "${name}"`,
+                ``,
+                `  命令: ${cmdStr}`,
+                `  类型: ${serverType}`,
+                description ? `  描述: ${description}` : '',
+                ``,
+                `服务器已注册到 Redux store 并同步到 Skills 管理室。`,
+                `正在尝试连接 Hub... 稍后即可使用。`
+              ]
+                .filter(Boolean)
+                .join('\n')
+            }
+          ]
+        }
+      }
+
+      case 'list': {
+        const { getMCPServersFromRedux } = await import('@main/apiServer/utils/mcp')
+        const servers = await getMCPServersFromRedux()
+
+        if (servers.length === 0) {
+          return { content: [{ type: 'text' as const, text: '未配置任何 MCP 服务器。' }] }
+        }
+
+        const lines = servers.map((s) => {
+          const cmd = argsToString(s.command, s.args || [])
+          return `  - ${s.name}${s.isActive ? ' (活跃)' : ' (未启用)'}\n    命令: ${cmd}\n    类型: ${s.type || 'stdio'}`
+        })
+
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: `已配置 ${servers.length} 个 MCP 服务器:\n\n${lines.join('\n\n')}`
+            }
+          ]
+        }
+      }
+
+      case 'remove': {
+        const name = args.name as string | undefined
+        if (!name) {
+          return { content: [{ type: 'text' as const, text: "'name' is required for remove action" }], isError: true }
+        }
+
+        const { getMCPServersFromRedux } = await import('@main/apiServer/utils/mcp')
+        const servers = await getMCPServersFromRedux()
+        const target = servers.find((s) => s.name === name)
+
+        if (!target) {
+          return {
+            content: [{ type: 'text' as const, text: `未找到 MCP 服务器: "${name}"` }],
+            isError: true
+          }
+        }
+
+        const { default: mcpService } = await import('@main/services/MCPService')
+        await mcpService.removeServer(null as any, target)
+
+        // Notify renderer to update Redux store
+        const wins = BrowserWindow.getAllWindows()
+        if (wins.length > 0) {
+          const remaining = servers.filter((s) => s.id !== target.id)
+          wins[0].webContents.send(IpcChannel.Mcp_ServersChanged, remaining)
+        }
+
+        return {
+          content: [{ type: 'text' as const, text: `✅ MCP 服务器已移除: "${name}"` }]
+        }
+      }
+
+      default:
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: `Unknown action "${action}". Supported actions: add, list, remove.`
+            }
+          ],
+          isError: true
+        }
     }
   }
 }

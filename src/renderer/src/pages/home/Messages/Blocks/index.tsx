@@ -10,7 +10,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { useSelector } from 'react-redux'
 import styled from 'styled-components'
 
-import AskUserInline from '../Tools/AskUserInline'
+import CollectInfoForm from '../Tools/CollectInfoForm'
 import BlockErrorFallback from './BlockErrorFallback'
 import CitationBlock from './CitationBlock'
 import CompactBlock from './CompactBlock'
@@ -169,43 +169,47 @@ const MessageBlockRenderer: React.FC<Props> = ({ blocks, message }) => {
               </AnimatedBlockWrapper>
             )
           } else if (block[0].type === MessageBlockType.TOOL) {
-            // ask_user 中轮转向：即使消息还在 processing 也必须渲染表单，
-            // 因为它需要用户交互才能继续，藏在加载线下面用户永远看不到
-            const firstBlock: MessageBlock = Array.isArray(block) ? block[0] : block
-            const toolResponse = isToolBlock(firstBlock) ? (firstBlock as any).metadata?.rawMcpToolResponse : undefined
-            const isAskUser = toolResponse?.tool?.name === 'ask_user'
             const isProcessing = message.status.includes('ing')
 
-            if (isAskUser && isProcessing) {
-              // 直接渲染 AskUserInline，不走 ToolBlock→MessageTools→MessageTool 链路，
-              // 避免中间层组件在 processing 状态下引发 React Hook 不匹配错误；
-              // 即使 question 为空也渲染（流式参数 JSON.parse 可能失败导致 question 不更新），
-              // 空表单比无限加载线好——用户至少能看到提交按钮并输入。
+            // ask_user 不渲染任何 UI；collect_missing_info 需要渲染表单
+            const firstBlock: MessageBlock = Array.isArray(block) ? block[0] : block
+            const toolResponse = isToolBlock(firstBlock) ? (firstBlock as any).metadata?.rawMcpToolResponse : undefined
+            const toolName = toolResponse?.tool?.name
+
+            if (toolName === 'ask_user') return null
+
+            // collect_missing_info：流式处理中也直接渲染表单，不让工具块加载线遮住
+            if (toolName === 'collect_missing_info') {
+              const rawResp = toolResponse?.response
+              const respStr = typeof rawResp === 'string' ? rawResp : rawResp ? JSON.stringify(rawResp) : ''
+              const isBlocked = respStr === '__COLLECT_BLOCKED__' || respStr.includes('__COLLECT_BLOCKED__')
+              const isPending = respStr === '__COLLECT_PENDING__' || respStr.includes('__COLLECT_PENDING__')
+              if (isBlocked) return null
               return (
                 <AnimatedBlockWrapper key={groupKey} enableAnimation={false}>
-                  <AskUserInline
+                  <CollectInfoForm
                     toolCallId={toolResponse.toolCallId || toolResponse.id}
-                    args={{
-                      question: toolResponse?.arguments?.question || '',
-                      choices: toolResponse.arguments?.choices as string[] | undefined,
-                      allowFreeText: toolResponse.arguments?.allowFreeText !== false,
-                      mode:
-                        (toolResponse.arguments?.mode as 'single' | 'multiple' | 'input') ||
-                        (toolResponse.arguments?.choices ? 'single' : 'input')
-                    }}
+                    resultText={isPending ? undefined : respStr || undefined}
                   />
                 </AnimatedBlockWrapper>
               )
             }
 
-            if (!isAskUser && isProcessing) {
-              return (
-                <AnimatedBlockWrapper key={groupKey} enableAnimation={true}>
-                  <ToolExecutingIndicator />
-                </AnimatedBlockWrapper>
-              )
+            // 黑洞风格：processing 阶段不渲染任何工具加载动画，
+            // 避免多线程并发产生多条闪烁横线。AI 的文字流本身已提供视觉反馈。
+            if (isProcessing) {
+              return null
             }
-            // 完成后：显示工具调用结果
+            // 黑洞风格：非错误状态的 MCP 工具块不渲染 ToolBlock/ToolBlockGroup
+            // 检查此工具块是否应显示（只显示错误状态）
+            const allToolBlocks = (Array.isArray(block) ? block : [block]).filter(isToolBlock)
+            const shouldShowToolBlock = allToolBlocks.some((tb) => {
+              const tr = (tb as any).metadata?.rawMcpToolResponse
+              return tr?.status === 'error' || tr?.tool?.name === 'collect_missing_info'
+            })
+            if (!shouldShowToolBlock) return null
+
+            // 非 ask_user/collect_missing_info 工具按原有方式渲染
             if (block.length === 1) {
               if (!isToolBlock(block[0])) {
                 logger.warn('Expected tool block but got different type', block[0])
@@ -320,26 +324,4 @@ const ImageBlockGroup = styled.div<{ count: number }>`
   flex-wrap: wrap;
   gap: 10px;
   max-width: 100%;
-`
-
-const ToolExecutingIndicator = styled.div`
-  height: 1.5px;
-  margin: 8px 0;
-  border-radius: 2px;
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    color-mix(in srgb, var(--color-primary) 40%, transparent) 30%,
-    var(--color-primary) 50%,
-    color-mix(in srgb, var(--color-primary) 40%, transparent) 70%,
-    transparent 100%
-  );
-  background-size: 200% 100%;
-  animation: accretionPulse 1.8s ease-in-out infinite;
-
-  @keyframes accretionPulse {
-    0% { background-position: 200% 0; opacity: 0.3; }
-    50% { opacity: 1; }
-    100% { background-position: -200% 0; opacity: 0.3; }
-  }
 `

@@ -1,5 +1,4 @@
 import { loggerService } from '@logger'
-import { ClarifyCard } from '@renderer/components/ClarifyCard'
 import type { ContentSearchRef } from '@renderer/components/ContentSearch'
 import { ContentSearch } from '@renderer/components/ContentSearch'
 import DragOverlay from '@renderer/components/DragOverlay'
@@ -252,7 +251,6 @@ const Chat: FC<Props> = (props) => {
                   <DragUploadFileCard onClose={() => setDroppedFiles(undefined)} />
                   {messageNavigation === 'buttons' && <ChatNavigation containerId="messages" />}
                   <MessageUserSelector topic={props.activeTopic} />
-                  <ClarifyCard />
                   <Inputbar
                     assistant={assistant}
                     setActiveTopic={props.setActiveTopic}

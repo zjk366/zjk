@@ -1,8 +1,7 @@
 import type { NormalToolResponse } from '@renderer/types'
 import type { ToolMessageBlock } from '@renderer/types/newMessage'
-import styled from 'styled-components'
 
-import AskUserInline from './AskUserInline'
+import CollectInfoForm from './CollectInfoForm'
 import { MessageAgentTools } from './MessageAgentTools'
 import { AgentToolsType } from './MessageAgentTools/types'
 import { MessageKnowledgeSearchToolTitle } from './MessageKnowledgeSearch'
@@ -10,6 +9,7 @@ import { MessageMemorySearchToolTitle } from './MessageMemorySearch'
 import { MessageWebSearchToolTitle } from './MessageWebSearch'
 
 const ASK_USER_TOOL = 'ask_user'
+const COLLECT_INFO_TOOL = 'collect_missing_info'
 
 interface Props {
   block: ToolMessageBlock
@@ -29,31 +29,31 @@ const ChooseTool = (toolResponse: NormalToolResponse): React.ReactNode | null =>
   let toolName = toolResponse.tool.name
   const toolType = toolResponse.tool.type
 
-  // ask_user — 嵌入对话流的选择卡片
+  // ask_user — 清除表单显示，不渲染任何 UI。
+  // AI 的问題直接以文字形式出现在消息中，用户在普通输入框打字回答，
+  // 像 ChatGPT/Claude 那样自然的文本对话流程。
   if (toolName === ASK_USER_TOOL) {
-    const args = toolResponse.arguments as Record<string, unknown> | undefined
+    return null
+  }
+
+  // collect_missing_info — 智能信息补全表单
+  if (toolName === COLLECT_INFO_TOOL) {
     const rawResponse =
       typeof toolResponse.response === 'string'
         ? toolResponse.response
         : toolResponse.response
           ? JSON.stringify(toolResponse.response)
           : undefined
-    // __ASK_USER_PENDING__ 是 waitForUserChoice 返回的占位符，
-    // 表示 AI SDK 流已正常结束但用户还未回答，此时仍然显示表单而不是结果文本。
-    const resultText = rawResponse === '__ASK_USER_PENDING__' ? undefined : rawResponse
+
+    const isPending = rawResponse === '__COLLECT_PENDING__' || rawResponse?.includes?.('__COLLECT_PENDING__')
+    const isBlocked = rawResponse === '__COLLECT_BLOCKED__' || rawResponse?.includes?.('__COLLECT_BLOCKED__')
+    if (isBlocked) return null
+
     return (
-      <AskUserCard>
-        <AskUserInline
-          toolCallId={toolResponse.toolCallId || toolResponse.id}
-          args={{
-            question: (args?.question as string) || '',
-            choices: args?.choices as string[] | undefined,
-            allowFreeText: args?.allowFreeText as boolean | undefined,
-            mode: (args?.mode as 'single' | 'multiple' | 'input') || (args?.choices ? 'single' : 'input')
-          }}
-          resultText={resultText}
-        />
-      </AskUserCard>
+      <CollectInfoForm
+        toolCallId={toolResponse.toolCallId || toolResponse.id}
+        resultText={isPending ? undefined : rawResponse}
+      />
     )
   }
 
@@ -88,16 +88,6 @@ export default function MessageTool({ block }: Props) {
 
   return toolRenderer
 }
-
-// ── ask_user 卡片样式 ─────────────────────────────────────
-
-const AskUserCard = styled.div`
-  border: 0.5px solid var(--color-border);
-  border-radius: 10px;
-  background: var(--color-background-opacity);
-  overflow: hidden;
-  margin: 8px 0;
-`
 
 // const PrepareToolWrapper = styled.span`
 //   display: flex;

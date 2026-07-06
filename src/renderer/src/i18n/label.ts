@@ -142,6 +142,7 @@ export const getRestoreProgressLabel = (key: string): string => {
 
 const titleKeyMap = {
   // TODO: update i18n key
+  blackhole: 'title.blackhole',
   store: 'title.store',
   apps: 'title.apps',
   code: 'title.code',

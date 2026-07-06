@@ -40,21 +40,38 @@ class SkillsService {
     logger.info(`Skill ${skill.name} ${skill.isEnabled ? 'disabled' : 'enabled'}`)
   }
 
-  /** 注册新技能（同名自动覆盖） */
+  /** 注册新技能（同名自动覆盖），带输入安全校验 */
   async register(skill: LocalSkill): Promise<void> {
+    if (!skill.name || typeof skill.name !== 'string' || skill.name.trim().length === 0) {
+      logger.error('SkillsService.register: rejected empty name', { skill })
+      return
+    }
+    if (!skill.id || typeof skill.id !== 'string') {
+      logger.error('SkillsService.register: rejected invalid id', { skill })
+      return
+    }
+    // 限制 description/tags 长度防止 IndexedDB 撑爆
+    const truncated: LocalSkill = {
+      ...skill,
+      name: skill.name.trim(),
+      description: (skill.description || '').slice(0, 2000),
+      plainDescription: (skill.plainDescription || '').slice(0, 5000),
+      tags: (skill.tags || []).slice(0, 20).map((t) => String(t).slice(0, 100))
+    }
+
     const all: LocalSkill[] = await db.table('local_skills').toArray()
-    const existing = all.find((s) => s.name === skill.name)
+    const existing = all.find((s) => s.name === truncated.name)
     if (existing) {
       await db.table('local_skills').update(existing.id, {
-        ...skill,
+        ...truncated,
         id: existing.id,
         createdAt: existing.createdAt,
         updatedAt: new Date().toISOString()
       })
-      logger.info(`Skill updated: ${skill.name}`)
+      logger.info(`Skill updated: ${truncated.name}`)
     } else {
-      await db.table('local_skills').add(skill)
-      logger.info(`Skill registered: ${skill.name}`)
+      await db.table('local_skills').add(truncated)
+      logger.info(`Skill registered: ${truncated.name}`)
     }
   }
 

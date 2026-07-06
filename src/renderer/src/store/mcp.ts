@@ -16,6 +16,7 @@
  */
 import { loggerService } from '@logger'
 import { createSlice, nanoid, type PayloadAction } from '@reduxjs/toolkit'
+import McpSkillsSyncService from '@renderer/services/McpSkillsSyncService'
 import { type BuiltinMCPServer, BuiltinMCPServerNames, type MCPConfig, type MCPServer } from '@renderer/types'
 
 const logger = loggerService.withContext('Store:MCP')
@@ -191,25 +192,19 @@ export const initializeMCPServers = (existingServers: MCPServer[], dispatch: (ac
     }
   })
 
-  // 3. 同步注册到 Skills 管理室
-  import('@renderer/services/SkillsService').then(({ default: SkillsService }) => {
-    const svc = SkillsService.getInstance()
+  // 3. 同步注册到 Skills 管理室（内置服务器，延迟 + 静默容错，不给启动加压）
+  setTimeout(() => {
     builtinMCPServers.forEach((s) => {
-      svc
-        .register({
-          id: `builtin_${s.name.replace(/[^a-zA-Z0-9]/g, '_')}`,
-          name: s.name,
-          description: `${s.name} 内置 MCP 服务`,
-          plainDescription: s.reference || `${s.name} - Cherry Studio 内置 MCP 服务`,
-          source: 'MCP 内置',
-          isEnabled: true,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          tags: ['MCP', '内置']
-        })
-        .catch(() => {})
+      McpSkillsSyncService.syncServerToSkill({
+        id: s.name,
+        name: s.name,
+        description: `${s.name} 内置 MCP 服务`,
+        type: s.type || 'inMemory',
+        isActive: true,
+        installSource: 'builtin'
+      } as MCPServer).catch(() => {})
     })
-  })
+  }, 8000)
 
   // 4. 清除缓存 + 逐台热启动内置服务（隔 2 秒避免并发超时）
   window.electron?.ipcRenderer?.invoke('mcp:clear-cache').catch(() => {})
@@ -229,7 +224,8 @@ export const initializeMCPServers = (existingServers: MCPServer[], dispatch: (ac
     setTimeout(() => startNext(0), 1000)
   }
 
-  // 5. 清理已移除的内置服务（从 Redux 和 Skills 中删除）
+  // 5. 清理已移除的内置服务 + 孤儿技能
+  // 使用 syncAllServers 全量同步会顺便清理孤儿
   const OBSOLETE_NAMES = [
     '@cherry/flomo',
     '@cherry/memory',
@@ -239,24 +235,12 @@ export const initializeMCPServers = (existingServers: MCPServer[], dispatch: (ac
     '@cherry/didi-mcp',
     '@cherry/nowledge-mem'
   ]
-  existingServers.forEach((server) => {
-    if (OBSOLETE_NAMES.includes(server.name)) {
-      dispatch(deleteMCPServer(server.id))
-    }
-  })
-  import('@renderer/services/SkillsService').then(({ default: SkillsService }) => {
-    const svc = SkillsService.getInstance()
-    svc
-      .getAll()
-      .then((all) => {
-        all.forEach((s) => {
-          if (OBSOLETE_NAMES.includes(s.name)) {
-            svc.remove(s.id).catch(() => {})
-          }
-        })
-      })
-      .catch(() => {})
-  })
+  const currentServers = existingServers.filter((s) => s.isActive && !OBSOLETE_NAMES.includes(s.name))
+  // 把内置服务器也加进去一起同步（延迟+静默容错，Redux persist 恢复后才写 IndexedDB）
+  const allCurrent = [...builtinMCPServers, ...currentServers]
+  setTimeout(() => {
+    McpSkillsSyncService.syncAllServers(allCurrent).catch(() => {})
+  }, 10000)
 }
 
 /**
@@ -305,21 +289,7 @@ export function installMcpPackage(packageName: string, description?: string): MC
   }
 
   // 同步注册到 Skills 管理室
-  import('@renderer/services/SkillsService').then(({ default: SkillsService }) => {
-    SkillsService.getInstance()
-      .register({
-        id: `mcp_${server.id}`,
-        name: packageName,
-        description: description || `${packageName} MCP 服务`,
-        plainDescription: `${packageName} - 通过 npx 自动安装的 MCP 服务`,
-        source: 'MCP 安装',
-        isEnabled: true,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        tags: ['MCP', '自动安装']
-      })
-      .catch(() => {})
-  })
+  McpSkillsSyncService.syncServerToSkill(server)
 
   window.toast.success(`已添加 MCP: ${packageName}`)
   return server

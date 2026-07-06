@@ -86,7 +86,7 @@ export function resolveChoice(toolCallId: string, answer: string): boolean {
 
   window.dispatchEvent(
     new CustomEvent('form-answer', {
-      detail: `用户回答了 ask_user 问题 "${pending.params.question}": ${answer}`
+      detail: `[用户回答]: ${answer}`
     })
   )
 
@@ -111,17 +111,25 @@ export function rejectChoice(toolCallId: string, reason?: string): boolean {
 
   window.dispatchEvent(
     new CustomEvent('form-answer', {
-      detail: `用户取消了 ask_user 问题 "${pending.params.question}": ${reason || '未提供原因'}`
+      detail: `[用户取消]: ${reason || '未提供原因'}`
     })
   )
   return true
 }
 
 /**
- * 检查是否有正在等待的 clarify 请求。
+ * 检查指定的 toolCallId 是否有正在等待的 clarify 请求。
  */
 export function hasPendingChoice(toolCallId: string): boolean {
   return pendingMap.has(toolCallId)
+}
+
+/**
+ * 检查是否有任何正在等待的 clarify 请求。
+ * 用于防止 AI 在已有未回答的问题时再次调用 ask_user。
+ */
+export function hasAnyPending(): boolean {
+  return pendingMap.size > 0
 }
 
 /**
@@ -138,4 +146,91 @@ export function getPendingRequests(): Array<{
     params: pending.params,
     elapsed: now - pending.timestamp
   }))
+}
+
+// ==================== collect_missing_info ====================
+
+/** 字段定义 */
+export interface CollectField {
+  key: string
+  label: string
+  type: 'text' | 'select' | 'textarea'
+  placeholder?: string
+  options?: string[]
+}
+
+/** collect_missing_info 参数 */
+export interface CollectInfoParams {
+  message: string
+  fields: CollectField[]
+}
+
+/** collect_missing_info 的 pending 状态 */
+export interface CollectInfoPending {
+  params: CollectInfoParams
+  timestamp: number
+}
+
+/** 存储 collect_missing_info 的 fields 数据 */
+const collectFieldsMap = new Map<string, CollectInfoPending>()
+
+/**
+ * 注册一个 collect_missing_info 请求。
+ * 与 ask_user 共用 pendingMap（防重守卫），但额外存储 fields 数据。
+ */
+export function waitForCollectInfo(
+  toolCallId: string,
+  params: CollectInfoParams
+): { content: Array<{ type: 'text'; text: string }>; isError: false } {
+  // 在 pendingMap 中注册（与 ask_user 共用，hasAnyPending 会检测到）
+  pendingMap.set(toolCallId, {
+    params: { question: params.message, mode: 'input' },
+    timestamp: Date.now()
+  })
+  // 额外存储 fields 定义
+  collectFieldsMap.set(toolCallId, { params, timestamp: Date.now() })
+
+  return {
+    content: [{ type: 'text' as const, text: '__COLLECT_PENDING__' }],
+    isError: false
+  }
+}
+
+/** 获取 collect_missing_info 的 fields 定义 */
+export function getCollectFields(toolCallId: string): CollectField[] | undefined {
+  return collectFieldsMap.get(toolCallId)?.params.fields
+}
+
+/** 获取 collect_missing_info 的 message */
+export function getCollectMessage(toolCallId: string): string | undefined {
+  return collectFieldsMap.get(toolCallId)?.params.message
+}
+
+/**
+ * 用户提交 collect_missing_info 后调用。
+ * 发送结构化数据给 AI。
+ */
+export function resolveCollectInfo(toolCallId: string, values: Record<string, string>): boolean {
+  const pending = pendingMap.get(toolCallId)
+  if (!pending) return false
+  const collectPending = collectFieldsMap.get(toolCallId)
+
+  pendingMap.delete(toolCallId)
+  collectFieldsMap.delete(toolCallId)
+
+  // 构建结构化数据字符串
+  const lines = Object.entries(values)
+    .filter(([, v]) => v.trim())
+    .map(([k, v]) => `${k}: ${v}`)
+  const detail = `[信息收集完成]:\n${lines.join('\n')}`
+
+  window.dispatchEvent(new CustomEvent('form-answer', { detail }))
+
+  window.dispatchEvent(
+    new CustomEvent('clarify-resolved', {
+      detail: { toolCallId, answer: JSON.stringify(values) }
+    })
+  )
+
+  return true
 }

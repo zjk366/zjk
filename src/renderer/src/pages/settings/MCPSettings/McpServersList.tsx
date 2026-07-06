@@ -6,6 +6,7 @@ import { EditIcon } from '@renderer/components/Icons'
 import Scrollbar from '@renderer/components/Scrollbar'
 import { useMCPServers } from '@renderer/hooks/useMCPServers'
 import { useMCPServerTrust } from '@renderer/hooks/useMCPServerTrust'
+import McpSkillsSyncService from '@renderer/services/McpSkillsSyncService'
 import type { MCPServer } from '@renderer/types'
 import { formatMcpError } from '@renderer/utils/error'
 import { matchKeywordsInString } from '@renderer/utils/match'
@@ -129,6 +130,8 @@ const McpServersList: FC = () => {
           onOk: async () => {
             await window.api.mcp.removeServer(server)
             deleteMCPServer(server.id)
+            // 同步从 Skills 管理室移除
+            await McpSkillsSyncService.removeServerSkill(server)
             window.toast.success(t('settings.mcp.deleteSuccess'))
           }
         })
@@ -143,10 +146,10 @@ const McpServersList: FC = () => {
   const handleAddServerSuccess = useCallback(
     async (server: MCPServer) => {
       addMCPServer(server)
+      // 同步注册到 Skills 管理室
+      await McpSkillsSyncService.syncServerToSkill(server)
       setIsAddModalVisible(false)
       window.toast.success(t('settings.mcp.addSuccess'))
-      // Optionally navigate to the new server's settings page
-      // navigate(`/settings/mcp/settings/${encodeURIComponent(server.id)}`)
     },
     [addMCPServer, t]
   )

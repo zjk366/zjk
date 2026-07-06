@@ -169,41 +169,85 @@ body.blackhole-theme .ant-modal-body {
 
 /* ============================================================
    Confirm 确认弹框 — 警告、删除等
+   形状：左侧彩色装饰条 + 紧凑圆角卡片
+   文字：标题加粗醒目，内容柔和可读
    ============================================================ */
 
+/* 弹框内容容器 — 带左侧彩色装饰条 */
 body.blackhole-theme .ant-modal-confirm-body-wrapper {
-  padding: 4px 0;
+  position: relative;
+  padding: 6px 0 6px 0;
 }
 
-/* 警告图标 — 红色调 */
+/* 确认弹框整体 — 改为 flex 水平布局，图标区与文字区分离 */
+body.blackhole-theme .ant-modal-confirm-body {
+  display: flex !important;
+  gap: 14px !important;
+  align-items: flex-start !important;
+}
+
+/* 图标容器 — 圆形背景衬托 */
+body.blackhole-theme .ant-modal-confirm-body .anticon {
+  width: 36px !important;
+  height: 36px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-radius: 50% !important;
+  flex-shrink: 0 !important;
+  margin: 2px 0 0 0 !important;
+}
+
+/* 警告图标 — 琥珀色圆底 */
 body.blackhole-theme .ant-modal-confirm-body .anticon-exclamation-circle {
+  font-size: 18px !important;
+  background: rgba(210, 153, 34, 0.12) !important;
   color: var(--color-status-warning) !important;
-  font-size: 20px;
 }
 
+/* 确认图标 — 蓝色圆底 */
 body.blackhole-theme .ant-modal-confirm-body .anticon-question-circle {
+  font-size: 18px !important;
+  background: rgba(59, 130, 246, 0.12) !important;
   color: var(--color-primary) !important;
-  font-size: 20px;
 }
 
+/* 成功图标 — 绿色圆底 */
 body.blackhole-theme .ant-modal-confirm-body .anticon-check-circle {
+  font-size: 18px !important;
+  background: rgba(63, 185, 80, 0.12) !important;
   color: var(--color-status-success) !important;
-  font-size: 20px;
 }
 
-/* 标题 */
+/* 信息图标 — 灰色圆底 */
+body.blackhole-theme .ant-modal-confirm-body .anticon-info-circle {
+  font-size: 18px !important;
+  background: rgba(139, 148, 158, 0.12) !important;
+  color: var(--color-gray-1) !important;
+}
+
+/* 文字段落容器 */
+body.blackhole-theme .ant-modal-confirm-paragraph {
+  flex: 1 !important;
+  margin: 0 !important;
+}
+
+/* 标题 — 醒目 */
 body.blackhole-theme .ant-modal-confirm-title {
   color: var(--color-text-1) !important;
   font-size: 15px !important;
   font-weight: 600 !important;
+  line-height: 1.5 !important;
+  margin-bottom: 2px !important;
 }
 
-/* 内容 */
+/* 内容 — 柔和，与标题区分 */
 body.blackhole-theme .ant-modal-confirm-content {
-  color: var(--color-text-2) !important;
-  font-size: 13.5px !important;
-  line-height: 1.6 !important;
-  margin-top: 6px !important;
+  color: var(--color-text-3) !important;
+  font-size: 13px !important;
+  line-height: 1.7 !important;
+  margin-top: 4px !important;
+  max-width: 380px !important;
 }
 
 /* Modal 底部按钮区域 */
@@ -211,7 +255,9 @@ body.blackhole-theme .ant-modal-confirm-btns {
   display: flex;
   gap: 10px;
   justify-content: flex-end;
-  margin-top: 20px !important;
+  margin-top: 18px !important;
+  padding-top: 14px !important;
+  border-top: 0.5px solid var(--color-border) !important;
 }
 
 /* 取消按钮 — 暗色半透明 */
@@ -221,8 +267,8 @@ body.blackhole-theme .ant-modal-confirm-btns .ant-btn-default {
   color: var(--color-text-2) !important;
   border-radius: 8px !important;
   font-size: 13px !important;
-  height: 34px !important;
-  padding: 0 18px !important;
+  height: 32px !important;
+  padding: 0 16px !important;
   transition: all 0.2s ease !important;
 }
 
@@ -234,34 +280,34 @@ body.blackhole-theme .ant-modal-confirm-btns .ant-btn-default:hover {
 
 /* 确认/危险按钮 — 主题红色 */
 body.blackhole-theme .ant-modal-confirm-btns .ant-btn-primary.ant-btn-dangerous {
-  background: rgba(248, 81, 73, 0.15) !important;
-  border: 0.5px solid rgba(248, 81, 73, 0.35) !important;
-  color: var(--color-error) !important;
+  background: rgba(248, 81, 73, 0.12) !important;
+  border: 0.5px solid rgba(248, 81, 73, 0.3) !important;
+  color: #f85149 !important;
   border-radius: 8px !important;
   font-size: 13px !important;
-  height: 34px !important;
-  padding: 0 18px !important;
+  height: 32px !important;
+  padding: 0 16px !important;
   transition: all 0.2s ease !important;
 }
 
 body.blackhole-theme .ant-modal-confirm-btns .ant-btn-primary.ant-btn-dangerous:hover {
-  background: rgba(248, 81, 73, 0.25) !important;
-  border-color: var(--color-error) !important;
+  background: rgba(248, 81, 73, 0.22) !important;
+  border-color: #f85149 !important;
 }
 
 /* 确认按钮 — 普通确认（非危险） */
 body.blackhole-theme .ant-modal-confirm-btns .ant-btn-primary:not(.ant-btn-dangerous) {
-  background: rgba(59, 130, 246, 0.15) !important;
-  border: 0.5px solid rgba(59, 130, 246, 0.35) !important;
+  background: rgba(59, 130, 246, 0.12) !important;
+  border: 0.5px solid rgba(59, 130, 246, 0.3) !important;
   color: var(--color-primary) !important;
   border-radius: 8px !important;
   font-size: 13px !important;
-  height: 34px !important;
-  padding: 0 18px !important;
+  height: 32px !important;
+  padding: 0 16px !important;
   transition: all 0.2s ease !important;
 }
 
 body.blackhole-theme .ant-modal-confirm-btns .ant-btn-primary:not(.ant-btn-dangerous):hover {
-  background: rgba(59, 130, 246, 0.25) !important;
+  background: rgba(59, 130, 246, 0.22) !important;
   border-color: var(--color-primary) !important;
 }

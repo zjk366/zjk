@@ -390,21 +390,9 @@ export class ToolCallChunkHandler {
         responses: [toolResponse]
       })
 
-      const images = extractImagesFromToolOutput(toolResponse.response)
-
-      if (images.length) {
-        logger.info(`[IMG] Extracted ${images.length} image(s) from tool: ${toolResponse.tool.name}`)
-        this.onChunk({
-          type: ChunkType.IMAGE_CREATED
-        })
-        this.onChunk({
-          type: ChunkType.IMAGE_COMPLETE,
-          image: {
-            type: 'base64',
-            images: images
-          }
-        })
-      }
+      // 工具返回的图片由 mcp.ts 的 mcpResultToTextSummary 保存到文件库并注入 VFS URI，
+      // AI 会在回复中写 markdown 图片标签来渲染，不再创建 ImageMessageBlock 避免重复。
+      // IMAGE_CREATED / IMAGE_COMPLETE 派发已移除，ImageBlock 渲染路径已跳过。
 
       const files = extractFilesFromToolOutput(toolResponse.response)
 

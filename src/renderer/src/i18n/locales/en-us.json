@@ -1225,6 +1225,9 @@
         },
         "context": "New Context"
       },
+      "warning": {
+        "response_truncated": "Response has reached the token limit and may be incomplete"
+      },
       "quote": "Quote",
       "regenerate": {
         "model": "Switch Model"
@@ -5895,6 +5898,7 @@
   },
   "title": {
     "apps": "Apps",
+    "blackhole": "Blackhole",
     "code": "Code",
     "files": "Files",
     "home": "Home",

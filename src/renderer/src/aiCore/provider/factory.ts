@@ -45,6 +45,16 @@ export function getAiSdkProviderId(provider: Provider): AppProviderId {
     return appProviderIds['openai-chat']
   }
 
+  // OpenAI 兼容的自定义 provider（如 blackhole），映射到 'openai-chat' 扩展
+  // 注意：用 'openai-chat' 而非 'openai'（responses API），因为自定义后端通常只支持 chat completions
+  if (provider.type === 'openai') {
+    logger.info('OpenAI-compatible custom provider mapped to openai-chat extension', {
+      providerId: provider.id,
+      providerType: provider.type
+    })
+    return appProviderIds['openai-chat'] || 'openai-chat'
+  }
+
   logger.warn('Provider ID not found in registered extensions, using as-is', {
     providerId: provider.id,
     providerType: provider.type,

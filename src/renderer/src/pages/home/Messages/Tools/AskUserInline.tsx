@@ -81,7 +81,22 @@ const AskUserInline = memo(function AskUserInline({ toolCallId, args, resultText
     }
     if (!answer) return
     setSubmitted(true)
-    resolveChoice(toolCallId, answer)
+    const resolved = resolveChoice(toolCallId, answer)
+    // 即使 resolveChoice 没找到 pending 条目（toolCallId 不匹配），
+    // 也派发 form-answer 确保对话继续
+    if (!resolved) {
+      window.dispatchEvent(
+        new CustomEvent('form-answer', {
+          detail: `[用户回答]: ${answer}`
+        })
+      )
+      // 也派发 clarify-resolved 让 UI 切换到结果展示
+      window.dispatchEvent(
+        new CustomEvent('clarify-resolved', {
+          detail: { toolCallId, answer }
+        })
+      )
+    }
   }, [submitted, toolCallId, isMultiple, isInput, selected, multiSelected, textInput])
 
   // 已得到结果 → 显示结果文本（必须在所有 hooks 之后）

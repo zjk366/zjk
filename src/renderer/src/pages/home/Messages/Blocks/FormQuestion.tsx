@@ -1,15 +1,15 @@
 /**
  * FormQuestion — 解析 AI 输出的 <form_question> XML 并渲染为交互式表单集
  *
- * 支持同时展示多个表单，用户填完所有后一次性提交。
- * 不再自动发送，所有表单都由用户确认后统一提交。
+ * 多个表单时逐个展示，用户填完一个后再出现下一个。
+ * 所有表单都填完后一次性提交给 AI。
  *
  * 三种模式：
  * - single_select：选项列表 + 自定义输入，点选后需点提交
  * - multi_select：多选勾选 + 自定义输入，需点提交
  * - text_input：输入框 + 发送按钮
  */
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import styled from 'styled-components'
 
 // ==================== 类型定义 ====================
@@ -26,14 +26,18 @@ interface FormQuestionData {
   placeholder: string
 }
 
-/** 提取内容中所有 <form_question> XML 并解析 */
+/** 提取内容中所有 <form_question> XML 并解析，自动去重 */
 function extractForms(text: string): FormQuestionData[] {
   const results: FormQuestionData[] = []
+  const seenVariables = new Set<string>()
   const re = /<form_question[\s\S]*?<\/form_question>/g
   let match: RegExpExecArray | null
   while ((match = re.exec(text)) !== null) {
     const parsed = parseFormXml(match[0])
-    if (parsed) results.push(parsed)
+    if (parsed && !seenVariables.has(parsed.variable)) {
+      seenVariables.add(parsed.variable)
+      results.push(parsed)
+    }
   }
   return results
 }
@@ -73,14 +77,10 @@ function parseFormXml(xml: string): FormQuestionData | null {
   }
 }
 
-// 持久化已提交状态（模块级 Map，防组件重建丢失）
-const submittedForms = new Map<string, true>()
-function markSubmitted(key: string) {
-  submittedForms.set(key, true)
-}
-function isSubmitted(key: string) {
-  return submittedForms.has(key)
-}
+// 每个 FormQuestionSet 独立管理自身状态，不跨消息共享。
+// 之前使用模块级 Map 导致不同消息间表单状态串扰：
+// AI 在新消息中生成的表单会被之前消息的已提交状态污染，直接显示"已提交 ✓"。
+// 移除模块级持久化，每个实例的 useState 完全自洽。
 
 // ==================== 每个表单的本地状态 ====================
 
@@ -102,13 +102,21 @@ interface FormQuestionSetProps {
 }
 
 /**
- * 渲染一组 <form_question> 表单，统一提交
+ * 渲染一组 <form_question> 表单，逐个展示，全部填完后统一提交
  */
 export function FormQuestionSet({ content }: FormQuestionSetProps) {
   const forms = useMemo(() => extractForms(content), [content])
-  const submitKey = useRef(`formset_${content.slice(0, 80)}`).current
   const [states, setStates] = useState<FormLocalState[]>(() => forms.map(() => emptyFormState()))
-  const [allSubmitted, setAllSubmitted] = useState(() => isSubmitted(submitKey))
+  const [allSubmitted, setAllSubmitted] = useState(false)
+  const [currentIndex, setCurrentIndex] = useState(0)
+  const [transitionDir, setTransitionDir] = useState<'next' | 'prev' | null>(null)
+
+  // 已收集的所有答案
+  const [allAnswers, setAllAnswers] = useState<string[]>(() => forms.map(() => ''))
+
+  // 进度文本
+  const progressText =
+    forms.length > 1 && currentIndex < forms.length ? `问题 ${currentIndex + 1} / ${forms.length}` : ''
 
   // 更新第 i 个表单的状态
   const updateState = useCallback((idx: number, patch: Partial<FormLocalState>) => {
@@ -119,170 +127,200 @@ export function FormQuestionSet({ content }: FormQuestionSetProps) {
     })
   }, [])
 
-  // 收集所有已填写的答案
-  const collectAnswers = useCallback((): string => {
-    return forms
-      .map((form, i) => {
-        const s = states[i]
-        let answer = ''
-        if (form.type === 'single_select') {
-          answer = s.showCustom && s.textInput.trim() ? s.textInput.trim() : s.selected || ''
-        } else if (form.type === 'multi_select') {
-          const parts = [...s.multiSelected]
-          if (s.textInput.trim()) parts.push(s.textInput.trim())
-          answer = parts.join('、')
-        } else {
-          answer = s.textInput.trim()
-        }
-        return answer ? `${form.variable}: ${answer}` : ''
-      })
-      .filter(Boolean)
-      .join('\n')
-  }, [forms, states])
+  // 收集当前表单的答案
+  const collectCurrentAnswer = useCallback((): string => {
+    const i = currentIndex
+    const form = forms[i]
+    const s = states[i]
+    if (!form) return ''
+    let answer = ''
+    if (form.type === 'single_select') {
+      answer = s.showCustom && s.textInput.trim() ? s.textInput.trim() : s.selected || ''
+    } else if (form.type === 'multi_select') {
+      const parts = [...s.multiSelected]
+      if (s.textInput.trim()) parts.push(s.textInput.trim())
+      answer = parts.join('、')
+    } else {
+      answer = s.textInput.trim()
+    }
+    return answer
+  }, [currentIndex, forms, states])
 
-  // 当前是否有任何答案（需先定义，供 handleKeyDown 使用）
-  const hasAnyAnswer = useMemo(() => {
-    return states.some((s, i) => {
-      const form = forms[i]
-      if (!form) return false
-      if (form.type === 'single_select') return !!(s.selected || (s.showCustom && s.textInput.trim()))
-      if (form.type === 'multi_select') return s.multiSelected.length > 0 || s.textInput.trim().length > 0
-      return s.textInput.trim().length > 0
-    })
-  }, [forms, states])
+  // 当前是否有答案
+  const hasCurrentAnswer = useMemo(() => {
+    if (currentIndex >= forms.length) return false
+    const s = states[currentIndex]
+    if (!s) return false
+    const form = forms[currentIndex]
+    if (!form) return false
+    if (form.type === 'single_select') return !!(s.selected || (s.showCustom && s.textInput.trim()))
+    if (form.type === 'multi_select') return s.multiSelected.length > 0 || s.textInput.trim().length > 0
+    return s.textInput.trim().length > 0
+  }, [currentIndex, forms, states])
 
-  // 提交所有
-  const handleSubmitAll = useCallback(() => {
-    if (allSubmitted) return
-    const answers = collectAnswers()
-    if (!answers) return
-    markSubmitted(submitKey)
-    setAllSubmitted(true)
-    window.dispatchEvent(new CustomEvent('form-answer', { detail: answers }))
-  }, [allSubmitted, collectAnswers, submitKey])
+  // 提交当前表单
+  const handleSubmitCurrent = useCallback(() => {
+    if (allSubmitted || currentIndex >= forms.length) return
+    const answer = collectCurrentAnswer()
+    const form = forms[currentIndex]
+    if (!answer && form?.required !== 'false') return
+    if (!form) return
+
+    // 保存答案
+    const newAnswers = [...allAnswers]
+    newAnswers[currentIndex] = answer || '(跳过)'
+    setAllAnswers(newAnswers)
+
+    // 检查是否还有下一个表单
+    const nextIndex = currentIndex + 1
+    if (nextIndex < forms.length) {
+      // 过渡动画方向
+      setTransitionDir('next')
+      setTimeout(() => setCurrentIndex(nextIndex), 50)
+    } else {
+      // 所有表单都已完成 → 统一提交
+      setAllSubmitted(true)
+      const combined = newAnswers
+        .map((a, i) => (a ? `${forms[i].variable}: ${a}` : ''))
+        .filter(Boolean)
+        .join('\n')
+      window.dispatchEvent(new CustomEvent('form-answer', { detail: `[用户回答]:\n${combined}` }))
+    }
+  }, [allSubmitted, currentIndex, forms, collectCurrentAnswer, allAnswers])
 
   // 回车提交
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (e.key === 'Enter' && !e.shiftKey && !e.isPropagationStopped() && !allSubmitted && hasAnyAnswer) {
+      if (e.key === 'Enter' && !e.shiftKey && !e.isPropagationStopped() && !allSubmitted && hasCurrentAnswer) {
         e.preventDefault()
-        handleSubmitAll()
+        handleSubmitCurrent()
       }
     },
-    [allSubmitted, hasAnyAnswer, handleSubmitAll]
+    [allSubmitted, hasCurrentAnswer, handleSubmitCurrent]
   )
 
   // 跳过全部
   const canSkip = forms.some((f) => f.allow_skip === 'true')
   const handleSkipAll = useCallback(() => {
     if (allSubmitted) return
-    markSubmitted(submitKey)
     setAllSubmitted(true)
     window.dispatchEvent(new CustomEvent('form-answer', { detail: '跳过' }))
-  }, [allSubmitted, submitKey])
+  }, [allSubmitted])
 
   if (forms.length === 0) return null
+  if (allSubmitted) {
+    return <SubmittedHint>已提交 ✓</SubmittedHint>
+  }
+
+  const form = forms[currentIndex]
+  if (!form) return <SubmittedHint>已提交 ✓</SubmittedHint>
 
   return (
     <FormSetContainer onKeyDown={handleKeyDown}>
-      {forms.map((form, i) => (
-        <FormCard key={i}>
-          <FormTitle>{form.title || `第 ${i + 1} 项`}</FormTitle>
-          <FormQuestionText>{form.question}</FormQuestionText>
+      {/* 进度指示器 */}
+      {progressText && <ProgressBar>{progressText}</ProgressBar>}
 
-          {form.type === 'single_select' && !allSubmitted && (
-            <>
-              <OptionsList>
-                {form.options.map((opt) => (
-                  <OptionButton
-                    key={opt.value}
-                    $selected={states[i].selected === opt.value}
-                    onClick={() => updateState(i, { selected: opt.value, textInput: '', showCustom: false })}
-                    disabled={allSubmitted}>
-                    <OptionValue>{opt.value}</OptionValue>
-                    {opt.description && <OptionDesc>{opt.description}</OptionDesc>}
-                  </OptionButton>
-                ))}
-                <CustomOption
-                  $active={states[i].showCustom}
-                  onClick={() => updateState(i, { showCustom: true, selected: null })}
+      {/* 当前表单 */}
+      <FormCard $transition={transitionDir}>
+        <FormTitle>{form.title || `第 ${currentIndex + 1} 项`}</FormTitle>
+        <FormQuestionText>{form.question}</FormQuestionText>
+
+        {form.type === 'single_select' && (
+          <>
+            <OptionsList>
+              {form.options.map((opt) => (
+                <OptionButton
+                  key={opt.value}
+                  $selected={states[currentIndex].selected === opt.value}
+                  onClick={() => updateState(currentIndex, { selected: opt.value, textInput: '', showCustom: false })}
                   disabled={allSubmitted}>
-                  <OptionValue>自定义...</OptionValue>
-                </CustomOption>
-              </OptionsList>
-              {states[i].showCustom && (
-                <CustomInputRow>
-                  <TextInput
-                    autoFocus
-                    placeholder="输入你的想法..."
-                    value={states[i].textInput}
-                    onChange={(e) => updateState(i, { textInput: e.target.value })}
-                  />
-                </CustomInputRow>
-              )}
-            </>
-          )}
-
-          {form.type === 'multi_select' && !allSubmitted && (
-            <>
-              <OptionsList>
-                {form.options.map((opt) => {
-                  const checked = states[i].multiSelected.includes(opt.value)
-                  return (
-                    <CheckOption
-                      key={opt.value}
-                      $selected={checked}
-                      onClick={() => {
-                        updateState(i, {
-                          multiSelected: checked
-                            ? states[i].multiSelected.filter((v) => v !== opt.value)
-                            : [...states[i].multiSelected, opt.value]
-                        })
-                      }}>
-                      <Checkbox $checked={checked} />
-                      <div>
-                        <OptionValue>{opt.value}</OptionValue>
-                        {opt.description && <OptionDesc>{opt.description}</OptionDesc>}
-                      </div>
-                    </CheckOption>
-                  )
-                })}
-              </OptionsList>
-              <CustomInputArea>
-                <CustomInputLabel>或自定义输入</CustomInputLabel>
+                  <OptionValue>{opt.value}</OptionValue>
+                  {opt.description && <OptionDesc>{opt.description}</OptionDesc>}
+                </OptionButton>
+              ))}
+              <CustomOption
+                $active={states[currentIndex].showCustom}
+                onClick={() => updateState(currentIndex, { showCustom: true, selected: null })}
+                disabled={allSubmitted}>
+                <OptionValue>自定义...</OptionValue>
+              </CustomOption>
+            </OptionsList>
+            {states[currentIndex].showCustom && (
+              <CustomInputRow>
                 <TextInput
+                  autoFocus
                   placeholder="输入你的想法..."
-                  value={states[i].textInput}
-                  onChange={(e) => updateState(i, { textInput: e.target.value })}
-                  onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleKeyDown(e as any)}
+                  value={states[currentIndex].textInput}
+                  onChange={(e) => updateState(currentIndex, { textInput: e.target.value })}
                 />
-              </CustomInputArea>
-            </>
-          )}
+              </CustomInputRow>
+            )}
+          </>
+        )}
 
-          {form.type === 'text_input' && !allSubmitted && (
-            <TextInputRow>
+        {form.type === 'multi_select' && (
+          <>
+            <OptionsList>
+              {form.options.map((opt) => {
+                const checked = states[currentIndex].multiSelected.includes(opt.value)
+                return (
+                  <CheckOption
+                    key={opt.value}
+                    $selected={checked}
+                    onClick={() => {
+                      updateState(currentIndex, {
+                        multiSelected: checked
+                          ? states[currentIndex].multiSelected.filter((v) => v !== opt.value)
+                          : [...states[currentIndex].multiSelected, opt.value]
+                      })
+                    }}>
+                    <Checkbox $checked={checked} />
+                    <div>
+                      <OptionValue>{opt.value}</OptionValue>
+                      {opt.description && <OptionDesc>{opt.description}</OptionDesc>}
+                    </div>
+                  </CheckOption>
+                )
+              })}
+            </OptionsList>
+            <CustomInputArea>
+              <CustomInputLabel>或自定义输入</CustomInputLabel>
               <TextInput
-                autoFocus
-                placeholder={form.placeholder || '请输入...'}
-                value={states[i].textInput}
-                onChange={(e) => updateState(i, { textInput: e.target.value })}
+                placeholder="输入你的想法..."
+                value={states[currentIndex].textInput}
+                onChange={(e) => updateState(currentIndex, { textInput: e.target.value })}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.stopPropagation()
+                    handleSubmitCurrent()
+                  }
+                }}
               />
-            </TextInputRow>
-          )}
-        </FormCard>
-      ))}
+            </CustomInputArea>
+          </>
+        )}
 
-      {/* 底部操作栏 */}
-      {!allSubmitted && (
+        {form.type === 'text_input' && (
+          <TextInputRow>
+            <TextInput
+              autoFocus
+              placeholder={form.placeholder || '请输入...'}
+              value={states[currentIndex].textInput}
+              onChange={(e) => updateState(currentIndex, { textInput: e.target.value })}
+            />
+          </TextInputRow>
+        )}
+      </FormCard>
+
+      {/* 操作栏 */}
+      {currentIndex < forms.length && (
         <ActionBar>
           {canSkip && <SkipButton onClick={handleSkipAll}>跳过全部</SkipButton>}
-          <SubmitButton onClick={handleSubmitAll} disabled={!hasAnyAnswer}>
-            提交{forms.length > 1 ? `全部` : ''}
+          <SubmitButton onClick={handleSubmitCurrent} disabled={!hasCurrentAnswer && form.required !== 'false'}>
+            {currentIndex + 1 < forms.length ? '下一步' : '提交'}
           </SubmitButton>
         </ActionBar>
       )}
-      {allSubmitted && <SubmittedHint>已提交 ✓</SubmittedHint>}
     </FormSetContainer>
   )
 }
@@ -308,11 +346,31 @@ const FormSetContainer = styled.div`
   margin: 8px 0;
 `
 
-const FormCard = styled.div`
+const ProgressBar = styled.div`
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-3);
+  text-align: center;
+  padding: 4px 0;
+`
+
+const FormCard = styled.div<{ $transition?: 'next' | 'prev' | null }>`
   border: 0.5px solid var(--color-border);
   border-radius: 10px;
   padding: 12px 14px;
   background: var(--color-background-opacity);
+  animation: ${(p) => (p.$transition === 'next' ? 'formSlideIn 0.25s ease-out' : 'none')};
+
+  @keyframes formSlideIn {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
 `
 
 const FormTitle = styled.div`

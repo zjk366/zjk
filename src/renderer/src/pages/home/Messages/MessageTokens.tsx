@@ -1,7 +1,10 @@
 import { EVENT_NAMES, EventEmitter } from '@renderer/services/EventService'
+import { getProgress, type ProgressData } from '@renderer/services/TaskProgressService'
 import type { Message } from '@renderer/types/newMessage'
+import { isMessageProcessing } from '@renderer/utils/messageUtils/is'
 import { Popover } from 'antd'
 import { t } from 'i18next'
+import { useEffect, useRef, useState } from 'react'
 import styled from 'styled-components'
 
 interface MessageTokensProps {
@@ -17,8 +20,48 @@ const fmt = (n: number): string => {
 }
 
 const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
+  const isProcessing = isMessageProcessing(message)
+
+  // 任务进度状态（基于工具调用完成情况）
+  const [progress, setProgress] = useState<ProgressData>(
+    () => getProgress(message.id) || { completed: 0, total: 0, percent: 0 }
+  )
+  const progressRef = useRef(progress)
+  progressRef.current = progress
+
+  // 轮询 progressMap，不受事件时序影响
+  useEffect(() => {
+    if (!isProcessing) return
+    const interval = setInterval(() => {
+      const p = getProgress(message.id)
+      if (p) {
+        const current = progressRef.current
+        if (p.completed !== current.completed || p.total !== current.total) {
+          setProgress(p)
+        }
+      }
+    }, 200)
+    return () => clearInterval(interval)
+  }, [isProcessing, message.id])
+
   const locateMessage = () => {
     void EventEmitter.emit(EVENT_NAMES.LOCATE_MESSAGE + ':' + message.id, false)
+  }
+
+  // 流式处理中显示基于工具调用进度的百分比
+  if (isProcessing) {
+    const pct = Math.min(progress.percent, 99)
+    return (
+      <ProgressMeter onClick={locateMessage}>
+        <ProgressBarTrack>
+          <ProgressBarFill style={{ width: `${pct}%` }} />
+        </ProgressBarTrack>
+        <ProgressLabel>{pct}%</ProgressLabel>
+        <ProgressDetail>
+          {progress.completed}/{progress.total}
+        </ProgressDetail>
+      </ProgressMeter>
+    )
   }
 
   const getPrice = () => {
@@ -207,6 +250,49 @@ const OutValue = styled.span`
 const Cost = styled.span`
   color: var(--color-text-2);
   font-size: 9px;
+`
+
+// ── 任务进度条（黑洞风格，与 token 能量条区分） ──
+const ProgressMeter = styled.div`
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px 3px 10px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--color-background-soft) 70%, transparent);
+  border: 0.5px solid color-mix(in srgb, var(--color-status-warning, #faad14) 30%, transparent);
+  cursor: pointer;
+  user-select: text;
+`
+
+const ProgressBarTrack = styled.div`
+  width: 50px;
+  height: 3px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--color-status-warning, #faad14) 25%, transparent);
+  position: relative;
+  overflow: hidden;
+`
+
+const ProgressBarFill = styled.div`
+  height: 100%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--color-status-warning, #faad14), var(--color-primary));
+  transition: width 0.3s ease;
+`
+
+const ProgressLabel = styled.span`
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-status-warning, #faad14);
+  font-variant-numeric: tabular-nums;
+  min-width: 28px;
+`
+
+const ProgressDetail = styled.span`
+  font-size: 10px;
+  color: var(--color-text-3);
+  font-variant-numeric: tabular-nums;
 `
 
 export default MessageTokens

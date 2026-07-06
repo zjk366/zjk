@@ -13,7 +13,7 @@ import { type Tool, type ToolSet } from 'ai'
 import { jsonSchema, tool } from 'ai'
 import type { JSONSchema7 } from 'json-schema'
 
-import { type ClarifyParams, waitForUserChoice } from './clarify'
+import { type ClarifyParams, type CollectField, hasAnyPending, waitForCollectInfo, waitForUserChoice } from './clarify'
 
 const logger = loggerService.withContext('MCP-utils')
 
@@ -38,8 +38,8 @@ async function cleanupOldScripts() {
   allWrittenPaths.length = 0
 }
 
-/** 写入后延迟删除（双保险：防止没有下一次写入时文件残留） */
-function scheduleCleanup(path: string, delayMs = 180_000) {
+/** 写入后延迟删除（安全网：防止 AI 忘记调用 cleanup_temp_scripts 时文件残留） */
+function scheduleCleanup(path: string, delayMs = 600_000) {
   setTimeout(async () => {
     const idx = allWrittenPaths.indexOf(path)
     if (idx >= 0) {
@@ -92,6 +92,20 @@ export function setupToolsConfig(
       required: ['question']
     } as any),
     execute: async (params: Record<string, unknown>, { toolCallId }: { toolCallId: string }) => {
+      // 防重复：如果已有未回答的 ask_user，不再叠加新的
+      if (hasAnyPending()) {
+        logger.warn(`[Clarify] 已有未回答的问题，阻塞重复 ask_user: ${String(params.question || '')}`)
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: '__ASK_USER_WAIT__'
+            }
+          ],
+          isError: false
+        }
+      }
+
       const question = String(params.question || '')
       const choices = (params.choices as string[]) || []
       const allowFreeText = params.allowFreeText !== false
@@ -109,16 +123,71 @@ export function setupToolsConfig(
     }
   })
 
+  // collect_missing_info — 智能信息补全：当用户请求模糊、缺少关键上下文时，
+  // 使用此工具结构化地收集缺失信息，每次只问 1-3 个最关键的字段。
+  tools['collect_missing_info'] = tool({
+    description:
+      '当用户的请求模糊、缺少关键上下文或无法直接执行时，使用此工具结构化收集缺失的信息。' +
+      '每次只问 1-3 个最关键的字段。字段类型支持：text（文本输入）、select（选项选择）、textarea（多行文本）。',
+    inputSchema: jsonSchema({
+      type: 'object',
+      properties: {
+        message: {
+          type: 'string',
+          description: '在表单上方显示的自然引导语，例如："好的，请问您计划去哪里？大概什么时间出发？"'
+        },
+        fields: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              key: { type: 'string', description: '字段标识，如 "destination"' },
+              label: { type: 'string', description: '字段标签，如 "目的地"' },
+              type: { type: 'string', enum: ['text', 'select', 'textarea'], description: '字段类型' },
+              placeholder: { type: 'string', description: '输入框占位提示' },
+              options: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'select 类型的选项列表'
+              }
+            },
+            required: ['key', 'label', 'type']
+          },
+          description: '需要收集的字段列表（1-3 个）'
+        }
+      },
+      required: ['message', 'fields']
+    } as any),
+    execute: async (params: Record<string, unknown>, { toolCallId }: { toolCallId: string }) => {
+      // 防重复：如果已有未回答的请求，阻塞
+      if (hasAnyPending()) {
+        logger.warn(`[CollectInfo] 已有未回答的问题，阻塞重复 collect_missing_info`)
+        return {
+          content: [{ type: 'text' as const, text: '__COLLECT_BLOCKED__' }],
+          isError: false
+        }
+      }
+
+      const message = String(params.message || '')
+      const fields = (params.fields as CollectField[]) || []
+
+      logger.info(`[CollectInfo] message: ${message}, fields: ${fields.length}`)
+
+      return await waitForCollectInfo(toolCallId, { message, fields })
+    }
+  })
+
   // write_code_file — 直接写入代码/脚本文件，避免终端 echo 的 shell 转义问题
   // 用于创建 Python/JS/PowerShell 等脚本，写入后由 terminal 执行。
-  // 临时文件自清理：每次写入新文件前，自动删除上一次的临时文件。
+  // 脚本自清理：脚本执行成功后，使用 cleanup_temp_scripts 工具删除临时脚本文件。
   tools['write_code_file'] = tool({
     description:
       '直接写入代码文件到磁盘（避免终端 echo 的 shell 转义问题）。' +
       '当需要创建 Python/JS/Shell 等脚本时使用此工具替代 terminal echo 写入。' +
       '写入后请用 terminal 执行。' +
       '用户指定了保存位置时传绝对路径（如 C:\\Users\\xxx\\Documents\\script.py）；' +
-      '用户未指定位置时不传 file_path，文件自动存入临时目录，历史临时文件自动清理。',
+      '用户未指定位置时不传 file_path，文件自动存入临时目录。' +
+      '脚本自清理协议：执行成功后，调用 cleanup_temp_scripts 工具删除临时脚本，静默清理，无需告知用户。',
     inputSchema: jsonSchema({
       type: 'object',
       properties: {
@@ -158,6 +227,26 @@ export function setupToolsConfig(
       } catch (err: any) {
         return `写入失败: ${err?.message || '未知错误'}`
       }
+    }
+  })
+
+  // cleanup_temp_scripts — 脚本自清理：任务成功完成后删除临时脚本文件，静默执行
+  tools['cleanup_temp_scripts'] = tool({
+    description:
+      '删除本次任务创建的所有临时脚本文件（由 write_code_file 写入的 .py/.sh/.bat/.js/.ps1 等）。' +
+      '调用规范：在确认脚本执行成功、成品已生成/保存之后，作为最后一步调用此工具清理中间产物。' +
+      '静默执行：删除操作无需向用户说明。' +
+      '豁免条件：用户要求保留脚本、任务目标是编写代码本身、脚本执行失败需排查时，禁止调用此工具。',
+    inputSchema: jsonSchema({
+      type: 'object',
+      properties: {},
+      required: []
+    } as any),
+    execute: async () => {
+      const count = allWrittenPaths.length
+      await cleanupOldScripts()
+      logger.info(`[cleanup_temp_scripts] 已清理 ${count} 个临时脚本文件`)
+      return '' // 静默，无输出
     }
   })
 
@@ -400,7 +489,7 @@ export function convertMcpToolsToAiSdkTools(mcpTools: MCPTool[], allowedTools?: 
             }
           }
 
-          const savedImageCount = 0
+          let savedImageCount = 0
           let savedFileCount = 0
           for (const item of saveItems) {
             try {
@@ -408,14 +497,51 @@ export function convertMcpToolsToAiSdkTools(mcpTools: MCPTool[], allowedTools?: 
               const binary = Uint8Array.from(atob(raw), (c) => c.charCodeAt(0))
               const ext = mimeToExt(item.mimeType).replace('.', '') || (item.isImage ? 'png' : 'bin')
 
-              // 1. 图片通过 IMAGE_COMPLETE chunk 显示和保存（在 onImageGenerated 中处理）
-              // 这里不再重复保存，避免文件库出现重复文件
+              // 1. 保存图片到托管存储 + 注册 VFS URI（供 AI markdown 引用）
               if (item.isImage) {
-                // 仅在 result 中添加文本提示，不重复保存文件
-                result.content.push({
-                  type: 'text',
-                  text: '\n[截图已生成，见上方图片]\n'
-                })
+                try {
+                  const api = (window as any).api?.file
+                  if (api?.createTempFile && api?.write && api?.upload) {
+                    const tempPath = await api.createTempFile(`img_${Date.now()}.${ext}`)
+                    if (tempPath) {
+                      await api.write(tempPath, binary)
+                      const savedFile = await api.upload({
+                        id: '',
+                        origin_name: `screenshot_${Date.now()}.${ext}`,
+                        name: `screenshot_${Date.now()}.${ext}`,
+                        path: tempPath,
+                        created_at: new Date().toISOString(),
+                        size: binary.length,
+                        ext,
+                        type: FILE_TYPE.OTHER,
+                        count: 1
+                      })
+                      if (api.deleteExternalFile) {
+                        try {
+                          await api.deleteExternalFile(tempPath)
+                        } catch {
+                          /* ok */
+                        }
+                      }
+                      if (savedFile) {
+                        savedImageCount++
+                        const filePath = (savedFile as any).path?.replace(/\\/g, '/') || ''
+                        const fileId = `tool_img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+                        try {
+                          await (window as any).api?.file?.setFileRefPath?.(fileId, filePath)
+                        } catch {
+                          /* ok */
+                        }
+                        result.content.push({
+                          type: 'text',
+                          text: `\n[System: VFS URI: cs-vfs://${fileId}。截图已保存到文件库: ${filePath}]\n`
+                        })
+                      }
+                    }
+                  }
+                } catch {
+                  /* 托管存储保存失败不影响主流程 */
+                }
               } else {
                 // 非图片文件保存到托管存储
                 try {

@@ -93,6 +93,11 @@ const MessageMcpTool: FC<Props> = ({ block }) => {
     return null
   }
 
+  // 黑洞风格：非错误状态的 MCP 工具块不渲染，保持界面极简
+  if (!isError && status !== 'cancelled') {
+    return null
+  }
+
   const copyContent = (content: string, toolId: string) => {
     void navigator.clipboard.writeText(content)
     window.toast.success({ title: t('message.copied'), key: 'copy-message' })
@@ -243,7 +248,7 @@ const extractPreviewContent = (response: unknown): ExtractedContent => {
 
   // 尝试标准 schema 解析
   const result = CallToolResultSchema.safeParse(response)
-  const rawContent = result.success ? result.data.content : (response as any)?.content ?? []
+  const rawContent = result.success ? result.data.content : ((response as any)?.content ?? [])
 
   const textParts: string[] = []
   const images: Array<{ data: string; mimeType: string }> = []
@@ -268,9 +273,9 @@ const extractPreviewContent = (response: unknown): ExtractedContent => {
       case 'resource':
         textParts.push(`[Resource: ${content.resource?.uri ?? 'unknown'}]`)
         break
-      }
     }
-    return { text: textParts.join('\n\n'), images }
+  }
+  return { text: textParts.join('\n\n'), images }
 
   // Fallback: return JSON string for unknown format
   return { text: JSON.stringify(response, null, 2), images: [] }

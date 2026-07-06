@@ -1,5 +1,6 @@
 import { loggerService } from '@logger'
 import { BUILTIN_WEB_SEARCH_TOOL_NAME } from '@renderer/aiCore/tools/WebSearchTool'
+import { completeToolCall, registerToolCall } from '@renderer/services/TaskProgressService'
 import type { AppDispatch } from '@renderer/store'
 import store from '@renderer/store'
 import { toolPermissionsActions } from '@renderer/store/toolPermissions'
@@ -33,6 +34,9 @@ export const createToolCallbacks = (deps: ToolCallbacksDependencies) => {
   return {
     onToolCallPending: (toolResponse: ToolResponse) => {
       logger.debug('onToolCallPending', toolResponse)
+
+      // 跟踪任务进度
+      registerToolCall(assistantMsgId)
 
       if (blockManager.hasInitialPlaceholder) {
         const changes = {
@@ -111,6 +115,10 @@ export const createToolCallbacks = (deps: ToolCallbacksDependencies) => {
       toolCallIdToBlockIdMap.delete(toolResponse.id)
 
       if (toolResponse.status === 'done' || toolResponse.status === 'error' || toolResponse.status === 'cancelled') {
+        // 跟踪任务进度
+        if (toolResponse.status === 'done') {
+          completeToolCall(assistantMsgId)
+        }
         if (!existingBlockId) {
           logger.error(
             `[onToolCallComplete] No existing block found for completed/error tool call ID: ${toolResponse.id}. Cannot update.`

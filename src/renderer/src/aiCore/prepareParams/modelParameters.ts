@@ -166,10 +166,11 @@ export function getMaxTokens(assistant: Assistant, model: Model): number | undef
   const enabledMaxTokens = assistantSettings.enableMaxTokens ?? false
   let maxTokens = assistantSettings.maxTokens
 
-  // If user hasn't enabled enableMaxTokens, return undefined to let the API use its default value.
-  // Note: Anthropic API requires max_tokens, but that's handled by the Anthropic client with a fallback.
+  // If user hasn't enabled enableMaxTokens, use a safe default (8192) instead of undefined.
+  // Some APIs use extremely low defaults when max_tokens is omitted, causing responses
+  // to be truncated after only a few hundred characters even in new conversations.
   if (!enabledMaxTokens || maxTokens === undefined) {
-    return undefined
+    return 8192
   }
 
   const provider = getProviderByModel(model)

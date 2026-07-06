@@ -1,10 +1,9 @@
 // 通用工具组件 - 减少重复代码
 
-import { LoadingIcon } from '@renderer/components/Icons'
 import { SkeletonSpan } from '@renderer/components/Skeleton/InlineSkeleton'
 import type { MCPToolResponseStatus } from '@renderer/types'
 import { formatFileSize } from '@renderer/utils/file'
-import { Check, Ellipsis, TriangleAlert, X } from 'lucide-react'
+import { Ellipsis, TriangleAlert, X } from 'lucide-react'
 import { createContext, type ReactNode, use } from 'react'
 import { useTranslation } from 'react-i18next'
 import styled from 'styled-components'
@@ -133,19 +132,11 @@ export function ToolStatusIndicator({ status, hasError = false }: { status: Tool
 
   const getStatusInfo = (): { label: string; icon: ReactNode; color: StatusColor } | null => {
     switch (status) {
+      // 黑洞风格：非错误状态不显示任何标签和图标，保持界面极简
       case 'streaming':
-        return { label: t('message.tools.streaming', 'Streaming'), icon: <LoadingIcon />, color: 'primary' }
       case 'waiting':
-        return { label: t('message.tools.pending', 'Awaiting Approval'), icon: <LoadingIcon />, color: 'warning' }
       case 'pending':
       case 'invoking':
-        return { label: t('message.tools.invoking'), icon: <LoadingIcon />, color: 'primary' }
-      case 'cancelled':
-        return {
-          label: t('message.tools.cancelled'),
-          icon: <X size={13} className="lucide-custom" />,
-          color: 'error'
-        }
       case 'done':
         return hasError
           ? {
@@ -153,11 +144,13 @@ export function ToolStatusIndicator({ status, hasError = false }: { status: Tool
               icon: <TriangleAlert size={13} className="lucide-custom" />,
               color: 'error'
             }
-          : {
-              label: t('message.tools.completed'),
-              icon: <Check size={13} className="lucide-custom" />,
-              color: 'success'
-            }
+          : null
+      case 'cancelled':
+        return {
+          label: t('message.tools.cancelled'),
+          icon: <X size={13} className="lucide-custom" />,
+          color: 'error'
+        }
       case 'error':
         return {
           label: t('message.tools.error'),

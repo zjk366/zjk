@@ -54,7 +54,7 @@ import {
   MCPToolInputSchema,
   MCPToolOutputSchema
 } from '@types'
-import { app, net } from 'electron'
+import { app, BrowserWindow, net } from 'electron'
 import { EventEmitter } from 'events'
 import { v4 as uuidv4 } from 'uuid'
 
@@ -156,6 +156,12 @@ class McpService {
   private activeToolCalls: Map<string, AbortController> = new Map()
   private serverLogs = new ServerLogBuffer(200)
 
+  // ── 自动清理坏掉的服务器 ──────────────────────────────────────
+  /** 连续失败 N 次的服务器会被自动标记为 inactive（设为 1 则首次失败即停用） */
+  private readonly MAX_CONSECUTIVE_FAILURES = 2
+  /** 记录每台服务器的连续失败次数（进程级内存，重启后重置） */
+  private serverFailureCounters = new Map<string, number>()
+
   constructor() {
     this.initClient = this.initClient.bind(this)
     this.listTools = this.listTools.bind(this)
@@ -196,16 +202,48 @@ class McpService {
     )
 
     const allTools: MCPTool[] = []
+    const autoDeactivated: string[] = []
+
     results.forEach((result, index) => {
+      const server = activeServers[index]
       if (result.status === 'fulfilled') {
+        // 成功后重置失败计数
+        this.serverFailureCounters.delete(server.id)
         allTools.push(...result.value)
       } else {
-        logger.error(
-          `[listAllActiveServerTools] Failed to list tools from ${activeServers[index].name}:`,
-          result.reason as Error
+        // 失败后递增计数
+        const count = (this.serverFailureCounters.get(server.id) || 0) + 1
+        this.serverFailureCounters.set(server.id, count)
+
+        // 用 warn 替代 error，减少上下文噪音
+        logger.warn(
+          `[listAllActiveServerTools] ${server.name} 连接失败 (第${count}次): ${(result.reason as Error)?.message?.slice(0, 120)}`
         )
+
+        // 连续失败 N 次的服务器自动标记为 inactive
+        if (count >= this.MAX_CONSECUTIVE_FAILURES) {
+          autoDeactivated.push(server.name)
+          this.serverFailureCounters.delete(server.id) // 重置计数
+        }
       }
     })
+
+    // 将自动去激活的服务器通知渲染进程更新 Redux
+    if (autoDeactivated.length > 0) {
+      logger.warn(`[listAllActiveServerTools] 以下服务器连续失败${this.MAX_CONSECUTIVE_FAILURES}次，自动停用:`, {
+        servers: autoDeactivated
+      })
+      try {
+        const servers = await getMCPServersFromRedux()
+        const updated = servers.map((s) => (autoDeactivated.includes(s.name) ? { ...s, isActive: false } : s))
+        const wins = BrowserWindow.getAllWindows()
+        if (wins.length > 0) {
+          wins[0].webContents.send(IpcChannel.Mcp_ServersChanged, updated)
+        }
+      } catch (err) {
+        logger.warn('[listAllActiveServerTools] Failed to notify renderer about deactivation:', err as Error)
+      }
+    }
 
     return allTools
   }

@@ -6,6 +6,7 @@ import { useTheme } from '@renderer/context/ThemeProvider'
 import { useMCPServer, useMCPServers } from '@renderer/hooks/useMCPServers'
 import { useMCPServerTrust } from '@renderer/hooks/useMCPServerTrust'
 import MCPDescription from '@renderer/pages/settings/MCPSettings/McpDescription'
+import McpSkillsSyncService from '@renderer/services/McpSkillsSyncService'
 import type { MCPPrompt, MCPResource, MCPServer, MCPTool } from '@renderer/types'
 import { parseKeyValueString } from '@renderer/utils/env'
 import { formatMcpError } from '@renderer/utils/error'
@@ -325,14 +326,17 @@ const McpSettings: React.FC = () => {
         mcpServer.headers = parseKeyValueString(values.headers)
       }
 
+      let savedIsActive = false
       if (server.isActive) {
         try {
           await window.api.mcp.restartServer(mcpServer)
           updateMCPServer({ ...mcpServer, isActive: true })
+          savedIsActive = true
           window.toast.success(t('settings.mcp.updateSuccess'))
           setIsFormChanged(false)
         } catch (error: any) {
           updateMCPServer({ ...mcpServer, isActive: false })
+          savedIsActive = false
           window.modal.error({
             title: t('settings.mcp.updateError'),
             content: error.message,
@@ -341,9 +345,12 @@ const McpSettings: React.FC = () => {
         }
       } else {
         updateMCPServer({ ...mcpServer, isActive: false })
+        savedIsActive = false
         window.toast.success(t('settings.mcp.updateSuccess'))
         setIsFormChanged(false)
       }
+      // 同步到 Skills 管理室（使用实际生效的 isActive 状态）
+      McpSkillsSyncService.syncServerToSkill({ ...mcpServer, isActive: savedIsActive })
       setLoading(false)
     } catch (error: any) {
       setLoading(false)
