@@ -60,6 +60,9 @@ export function setupToolsConfig(
     tools = convertMcpToolsToAiSdkTools(mcpTools, allowedTools)
   }
 
+  // 始终注册内置工具
+  tools = registerProgressUpdateTool(tools)
+
   // ask_user — 中轮转向工具：向用户提问并等待选择/输入
   // 当任务需要用户决策、确认方向或提供额外信息时使用。
   // 注意：AI SDK v6 流式模式不阻塞工具执行，每次调用 ask_user
@@ -316,6 +319,19 @@ export function hasMultimodalContent(result: MCPCallToolResponse): boolean {
  * 将 MCP 工具调用结果转换为纯文本摘要，把图片/音频/resource blob 替换为文本占位描述，
  * 避免 base64 数据超出消息大小限制（如 kimi 的 4MB 限制）。
  */
+/** 单段文本截断上限：防止多轮工具调用中上下文无限膨胀 */
+const TOOL_TEXT_TRUNCATE_LIMIT = 3000
+
+/**
+ * 截断过长的文本，保留首尾关键信息
+ */
+function truncateText(text: string, maxLen: number = TOOL_TEXT_TRUNCATE_LIMIT): string {
+  if (!text || text.length <= maxLen) return text
+  const head = text.slice(0, Math.floor(maxLen * 0.6))
+  const tail = text.slice(-Math.floor(maxLen * 0.3))
+  return `${head}\n\n…[截断: 原文 ${text.length} 字符，保留关键首尾]…\n\n${tail}`
+}
+
 export function mcpResultToTextSummary(result: MCPCallToolResponse): string {
   if (!result || !result.content || !Array.isArray(result.content)) {
     return JSON.stringify(result)
@@ -325,7 +341,7 @@ export function mcpResultToTextSummary(result: MCPCallToolResponse): string {
   for (const item of result.content) {
     switch (item.type) {
       case 'text':
-        parts.push(item.text || '')
+        parts.push(truncateText(item.text || ''))
         break
       case 'image':
         // 图片通过 IMAGE_COMPLETE chunk 显示，这里只返回简短描述
@@ -344,7 +360,7 @@ export function mcpResultToTextSummary(result: MCPCallToolResponse): string {
             parts.push(`[${desc} 已保存到文件库]`)
           }
         } else {
-          parts.push(item.resource?.text || JSON.stringify(item))
+          parts.push(truncateText(item.resource?.text || JSON.stringify(item)))
         }
         break
       default:
@@ -767,6 +783,55 @@ export function convertMcpToolsToAiSdkTools(mcpTools: MCPTool[], allowedTools?: 
           .join('\n')}`
       }
       return `未知操作: ${action}`
+    }
+  })
+
+  return tools
+}
+
+// ============================================================
+//  progress_update — 内置任务进度反馈工具
+// ============================================================
+let _progressUpdateRegistered = false
+
+export function registerProgressUpdateTool(tools: ToolSet): ToolSet {
+  if (_progressUpdateRegistered) return tools
+  _progressUpdateRegistered = true
+
+  tools['progress_update'] = tool({
+    description:
+      '更新当前任务的执行进度。在任务的关键节点（搜索完成、大纲完成、文件生成等）调用此工具，让用户看到真实的执行进度。',
+    inputSchema: jsonSchema({
+      type: 'object',
+      properties: {
+        percent: {
+          type: 'number',
+          description: '进度百分比 0-100。0=开始, 30=素材收集, 60=结构搭建, 90=文件生成, 100=完成'
+        },
+        stage: {
+          type: 'string',
+          description: '当前阶段标识: planning / searching / structuring / assembling / completed / failed'
+        },
+        message: {
+          type: 'string',
+          description: '简短的进度描述，会显示给用户。如 "正在搜索素材 (8/12)..."'
+        },
+        output_file: {
+          type: 'string',
+          description: '任务完成时的输出文件路径（仅 percent=100 时使用）'
+        }
+      },
+      required: ['percent', 'stage', 'message']
+    } as any),
+    execute: async ({ percent, stage, message, output_file }: any) => {
+      try {
+        // 动态导入 TaskProgressService 避免循环依赖
+        const { updateProgressDirect } = await import('@renderer/services/TaskProgressService')
+        updateProgressDirect({ percent, stage, message, output_file })
+      } catch {
+        // fail silently
+      }
+      return `进度已更新: ${percent}% - ${stage} - ${message}`
     }
   })
 

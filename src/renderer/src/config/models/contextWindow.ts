@@ -151,6 +151,6 @@ export const DEFAULT_COMPRESSION_THRESHOLD = 70 // %
 /**
  * 默认输出预留比例
  */
-export const DEFAULT_CONTEXT_RESERVE_RATIO = 20 // %
+export const DEFAULT_CONTEXT_RESERVE_RATIO = 5 // %
 
 export default CONTEXT_WINDOW_MAP

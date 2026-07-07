@@ -5,11 +5,12 @@ import {
   DEFAULT_CONTEXT_RESERVE_RATIO,
   getContextWindow
 } from '@renderer/config/models/contextWindow'
+import db from '@renderer/databases'
 import type { Assistant, Message } from '@renderer/types'
 import { filterAdjacentUserMessaegs, filterLastAssistantMessage } from '@renderer/utils/messageUtils/filters'
 import { getMainTextContent } from '@renderer/utils/messageUtils/find'
 import type { ModelMessage } from 'ai'
-import { findLast, isEmpty, takeRight } from 'lodash'
+import { findLast, findLastIndex, isEmpty, takeRight } from 'lodash'
 
 import { getAssistantSettings, getDefaultModel } from './AssistantService'
 import MemoryBankService from './MemoryBankService'
@@ -159,7 +160,17 @@ export class ConversationService {
     if (messages.length === 0) return messages
 
     const reserveRatio = settings.contextReserveRatio ?? DEFAULT_CONTEXT_RESERVE_RATIO
-    const outputTokens = settings.enableMaxTokens && settings.maxTokens ? settings.maxTokens : 4096
+    // 输出预算必须与 getMaxTokens 一致，确保上下文窗口计算不超限
+    // 推理模型支持高达 65536 输出，非推理模型用 API 默认值（典型 8192）
+    const isReasoningModel =
+      typeof modelId === 'string' &&
+      (modelId.includes('claude-3-7-sonnet') ||
+        modelId.includes('claude-3.7-sonnet') ||
+        modelId.includes('claude-sonnet-4') ||
+        modelId.includes('claude-opus-4') ||
+        modelId.includes('claude-haiku-4'))
+    const outputTokens =
+      settings.enableMaxTokens && settings.maxTokens ? settings.maxTokens : isReasoningModel ? 65536 : 8192
 
     // 计算可用上下文预算
     const availableBudget = getAvailableContextBudget(modelId, reserveRatio, outputTokens)
@@ -180,7 +191,23 @@ export class ConversationService {
 
     // 超限了，从旧消息开始丢弃
     logger.debug(`[SmartContext] Truncating ${messages.length} msgs from ${totalTokens} to budget ${availableBudget}`)
-    return ConversationService.takeByTokenBudget(messages, availableBudget)
+    const result = ConversationService.takeByTokenBudget(messages, availableBudget)
+
+    // 铁律：永远保留第一条消息（原始任务定义），即使超出预算
+    // 这是确保多轮工具调用不丢失任务上下文的关键
+    const firstMsg = messages[0]
+    if (firstMsg && !result.some((m) => m.id === firstMsg.id)) {
+      // 牺牲最新一条助手消息来腾出空间（助手回复可重新生成，任务定义不能丢）
+      const lastAsstIdx = findLastIndex(result, (m) => m.role === 'assistant')
+      if (lastAsstIdx >= 0) {
+        result.splice(lastAsstIdx, 1)
+      } else {
+        result.pop()
+      }
+      result.unshift(firstMsg)
+    }
+
+    return result
   }
 
   /**
@@ -317,10 +344,10 @@ export class ConversationService {
           prompt: `请将以下对话内容压缩为一段简洁的中文摘要。
 
 要求：
-- 提取关键信息和重要结论
-- 保留技术细节和决策结果
+- 提取关键信息和重要结论，保留用户的原始任务目标和需求
+- 保留技术细节、文件路径和决策结果
 - 忽略寒暄和无关内容
-- 控制在 200 字以内
+- 控制在 600 字以内
 
 待压缩的对话：`,
           content: oldContent,
@@ -328,7 +355,7 @@ export class ConversationService {
         })
 
         const summaryText = summary?.text?.trim()
-        if (!summaryText || summaryText.length < 10) return
+        if (!summaryText || summaryText.length < 20) return
 
         const summaryTokens = estimateTextTokens(summaryText) + 4
         const savedTokens = originalTokens - summaryTokens
@@ -455,6 +482,17 @@ export class ConversationService {
     contextMessages = filterEmptyMessages(contextMessages)
     contextMessages = filterUserRoleStartMessages(contextMessages)
 
+    // Step 4b: 保存被截断的消息到记忆库（非阻塞，不丢失信息）
+    // 当上下文截断丢弃旧消息时，自动保存到 conversation_logs，
+    // MemoryBank 的草稿系统会在后台总结并存入记忆库，下次请求自动注入
+    if (contextMessages.length < messagesForTruncation.length) {
+      const keptIds = new Set(contextMessages.map((m) => m.id))
+      const droppedMessages = messagesForTruncation.filter((m) => !keptIds.has(m.id))
+      if (droppedMessages.length > 0) {
+        ConversationService.saveDroppedToMemory(droppedMessages).catch(() => {})
+      }
+    }
+
     // Fallback
     const lastUserMessage = findLast(messages, (m) => m.role === 'user')
     if ((!contextMessages || contextMessages.length === 0) && lastUserMessage) {
@@ -487,6 +525,45 @@ export class ConversationService {
   ): Promise<{ modelMessages: ModelMessage[]; uiMessages: Message[] }> {
     // 始终使用智能上下文链路（在对话短时会回退到等效旧行为）
     return ConversationService.prepareSmartContext(messages, assistant)
+  }
+
+  /**
+   * 保存被上下文截断丢弃的消息到记忆库（非阻塞，fire-and-forget）
+   *
+   * 当智能上下文截断丢弃旧消息时，将消息内容保存到 conversation_logs 表，
+   * MemoryBank 的草稿系统会在后台自动总结并存入记忆库。
+   * 下次 prepareSmartContext 时，记忆会被注入为系统消息，确保信息不丢失。
+   */
+  static async saveDroppedToMemory(droppedMessages: Message[]): Promise<void> {
+    if (droppedMessages.length === 0) return
+    try {
+      const topicId = droppedMessages[0]?.topicId || ''
+      if (!topicId) return
+
+      // 合并所有被丢弃的消息为一段文本
+      const parts: string[] = []
+      for (const msg of droppedMessages) {
+        const text = getMainTextContent(msg)
+        if (text.length > 0) {
+          parts.push(`[${msg.role === 'user' ? '用户' : '助手'}]: ${text}`)
+        }
+      }
+      if (parts.length === 0) return
+
+      const combined = parts.join('\n\n')
+
+      // 保存为一条 conversation_log，MemoryBank 的草稿系统会自动处理
+      // 使用特殊前缀 id 避免与普通日志重复
+      await db.table('conversation_logs').add({
+        id: `auto_truncate_${topicId.slice(0, 8)}_${Date.now()}`,
+        topicId,
+        userContent: combined.slice(0, 10000),
+        assistantContent: `[系统自动保存: ${droppedMessages.length} 条消息因上下文限制被截断，已保存至此]`,
+        createdAt: new Date().toISOString()
+      })
+    } catch {
+      // 静默失败，不影响主流程
+    }
   }
 
   static needsWebSearch(assistant: Assistant): boolean {

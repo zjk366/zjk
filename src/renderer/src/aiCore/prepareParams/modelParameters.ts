@@ -166,11 +166,14 @@ export function getMaxTokens(assistant: Assistant, model: Model): number | undef
   const enabledMaxTokens = assistantSettings.enableMaxTokens ?? false
   let maxTokens = assistantSettings.maxTokens
 
-  // If user hasn't enabled enableMaxTokens, use a safe default (8192) instead of undefined.
-  // Some APIs use extremely low defaults when max_tokens is omitted, causing responses
-  // to be truncated after only a few hundred characters even in new conversations.
+  // User hasn't set a custom maxTokens → use model-appropriate default
+  // For reasoning models that support extended thinking: generous budget for multi-step tools
+  // For other models: let the API use its default (typically 4096-8192)
   if (!enabledMaxTokens || maxTokens === undefined) {
-    return 8192
+    if (isClaudeReasoningModel(model)) {
+      return 65536
+    }
+    return undefined
   }
 
   const provider = getProviderByModel(model)

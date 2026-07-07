@@ -5,7 +5,7 @@ import { isMessageProcessing } from '@renderer/utils/messageUtils/is'
 import { Popover } from 'antd'
 import { t } from 'i18next'
 import { useEffect, useRef, useState } from 'react'
-import styled from 'styled-components'
+import styled, { keyframes } from 'styled-components'
 
 interface MessageTokensProps {
   message: Message
@@ -48,18 +48,23 @@ const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
     void EventEmitter.emit(EVENT_NAMES.LOCATE_MESSAGE + ':' + message.id, false)
   }
 
-  // 流式处理中显示基于工具调用进度的百分比
+  // 流式处理中显示工具执行进度
+  // 采用「完成计数驱动条宽」方案：条宽 = completed × 固定像素，只增不减，
+  // 避免多轮工具调用时百分比暴跌的问题
   if (isProcessing) {
-    const pct = Math.min(progress.percent, 99)
+    const count = progress.completed ?? 0
+    const totalCount = Math.max(progress.total ?? 0, count)
+    const PER_TASK_PX = 13
+    const barPx = Math.min(count * PER_TASK_PX, 64)
     return (
       <ProgressMeter onClick={locateMessage}>
         <ProgressBarTrack>
-          <ProgressBarFill style={{ width: `${pct}%` }} />
+          <ProgressBarFill style={{ width: `${barPx}px` }}>
+            <ProgressBarGlow />
+          </ProgressBarFill>
         </ProgressBarTrack>
-        <ProgressLabel>{pct}%</ProgressLabel>
-        <ProgressDetail>
-          {progress.completed}/{progress.total}
-        </ProgressDetail>
+        <ProgressLabel>{count}</ProgressLabel>
+        <ProgressDetail>/ {totalCount}</ProgressDetail>
       </ProgressMeter>
     )
   }
@@ -252,33 +257,91 @@ const Cost = styled.span`
   font-size: 9px;
 `
 
-// ── 任务进度条（黑洞风格，与 token 能量条区分） ──
+// ── 任务进度条（黑洞风格，逐渐累加动画） ──
+
+const shimmerSlide = keyframes`
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(500%); }
+`
+
+const glowPulse = keyframes`
+  0%, 100% { opacity: 0.4; transform: scale(0.8); }
+  50% { opacity: 0.9; transform: scale(1.2); }
+`
+
 const ProgressMeter = styled.div`
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 3px 8px 3px 10px;
+  gap: 8px;
+  padding: 3px 10px 3px 12px;
   border-radius: 6px;
   background: color-mix(in srgb, var(--color-background-soft) 70%, transparent);
-  border: 0.5px solid color-mix(in srgb, var(--color-status-warning, #faad14) 30%, transparent);
+  border: 0.5px solid color-mix(in srgb, var(--color-status-warning, #faad14) 25%, transparent);
   cursor: pointer;
   user-select: text;
+  transition: border-color 0.3s ease;
+
+  &:hover {
+    border-color: color-mix(in srgb, var(--color-status-warning, #faad14) 50%, transparent);
+  }
 `
 
 const ProgressBarTrack = styled.div`
-  width: 50px;
-  height: 3px;
-  border-radius: 2px;
-  background: color-mix(in srgb, var(--color-status-warning, #faad14) 25%, transparent);
+  width: 64px;
+  height: 4px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--color-status-warning, #faad14) 12%, transparent);
   position: relative;
   overflow: hidden;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.25);
 `
 
 const ProgressBarFill = styled.div`
   height: 100%;
-  border-radius: 2px;
+  border-radius: 3px;
   background: linear-gradient(90deg, var(--color-status-warning, #faad14), var(--color-primary));
-  transition: width 0.3s ease;
+  transition: width 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  position: relative;
+  overflow: visible;
+
+  /* 外层辉光 */
+  box-shadow:
+    0 0 6px 1px color-mix(in srgb, var(--color-status-warning, #faad14) 35%, transparent),
+    inset 0 0 2px rgba(255, 255, 255, 0.08);
+
+  /* 流光扫描线 */
+  &::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    width: 24px;
+    border-radius: 3px;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(255, 255, 255, 0.1) 50%,
+      transparent 100%
+    );
+    animation: ${shimmerSlide} 2s ease-in-out infinite;
+    pointer-events: none;
+  }
+`
+
+const ProgressBarGlow = styled.div`
+  position: absolute;
+  right: -3px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  filter: blur(3.5px);
+  opacity: 0.7;
+  animation: ${glowPulse} 1.5s ease-in-out infinite;
+  pointer-events: none;
 `
 
 const ProgressLabel = styled.span`

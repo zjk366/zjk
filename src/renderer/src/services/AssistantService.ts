@@ -56,14 +56,14 @@ export const DEFAULT_ASSISTANT_SETTINGS = {
   qwenThinkMode: undefined,
   // It would gracefully fallback to prompt if not supported by model.
   toolUseMode: 'function',
-  maxToolCalls: 20,
+  maxToolCalls: 50,
   enableMaxToolCalls: true,
   enableDynamicContext: false,
   maxContextTokens: 32000,
   enableSmartContext: true,
   enableContextCompression: true,
   compressionThreshold: 70,
-  contextReserveRatio: 20
+  contextReserveRatio: 5
 } as const satisfies AssistantSettings
 
 /**

@@ -184,11 +184,13 @@ const getPath = async () => {
 const FileLibPage: FC = () => {
   const navigate = useNavigate()
   const [basePath, setBasePath] = useState('')
+  const [rootPath, setRootPath] = useState('') // 文件库根路径，用于"返回上级"比较
   const [initDone, setInitDone] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
   useEffect(() => {
     getPath().then((p) => {
       setBasePath(p)
+      setRootPath(p)
       setInitDone(true)
     })
   }, [])
@@ -359,9 +361,9 @@ const FileLibPage: FC = () => {
           <ActBtn onClick={handleSelectPath}>选择目录</ActBtn>
         </PathBar>
       </Header>
-      {basePath && basePath !== getPath() && (
+      {basePath && rootPath && basePath !== rootPath && (
         <NavBar>
-          <NavBtn onClick={() => setBasePath(getPath())}>⬆ 返回上级</NavBtn>
+          <NavBtn onClick={() => setBasePath(rootPath)}>⬆ 返回上级</NavBtn>
           <PathDisplay>{basePath.replace(/\\/g, '/')}</PathDisplay>
         </NavBar>
       )}

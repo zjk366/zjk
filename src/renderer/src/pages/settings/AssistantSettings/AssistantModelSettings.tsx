@@ -55,7 +55,7 @@ const AssistantModelSettings: FC<Props> = ({ assistant, updateAssistant, updateA
     () => assistant?.settings?.toolUseMode ?? DEFAULT_ASSISTANT_SETTINGS.toolUseMode,
     [assistant?.settings?.toolUseMode]
   )
-  const [maxToolCalls, setMaxToolCalls] = useState(assistant?.settings?.maxToolCalls ?? 20)
+  const [maxToolCalls, setMaxToolCalls] = useState(assistant?.settings?.maxToolCalls ?? 50)
   const enableMaxToolCalls = useMemo(
     () => assistant?.settings?.enableMaxToolCalls ?? DEFAULT_ASSISTANT_SETTINGS.enableMaxToolCalls,
     [assistant?.settings?.enableMaxToolCalls]

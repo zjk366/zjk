@@ -63,4 +63,43 @@ function dispatchProgress(messageId: string) {
   window.dispatchEvent(new CustomEvent(EVENT_NAME, { detail: { messageId, progress: data } }))
 }
 
+// ============================================================
+//  语义化进度（progress_update 工具调用）
+// ============================================================
+
+export interface StageProgress {
+  percent: number
+  stage: string
+  message: string
+  output_file?: string
+  updatedAt: string
+}
+
+const stageProgressMap = new Map<string, StageProgress>()
+
+/**
+ * progress_update 工具调用此函数，直接设置语义化进度
+ */
+export function updateProgressDirect(update: Omit<StageProgress, 'updatedAt'>): void {
+  const stage: StageProgress = { ...update, updatedAt: new Date().toISOString() }
+  // 使用 '__stage__' 作为特殊 key 存储在 progressMap 中
+  // 但这里我们用独立的 map 避免与工具计数混淆
+  const messageId =
+    update.stage === 'completed' ? '__completed__' : update.stage === 'failed' ? '__failed__' : '__stage__'
+  stageProgressMap.set(messageId, stage)
+  window.dispatchEvent(new CustomEvent(EVENT_NAME, { detail: { stage: stage } }))
+}
+
+/** 获取最新的语义化进度 */
+export function getStageProgress(): StageProgress | undefined {
+  return (
+    stageProgressMap.get('__stage__') ?? stageProgressMap.get('__completed__') ?? stageProgressMap.get('__failed__')
+  )
+}
+
+/** 清除语义化进度 */
+export function clearStageProgress(): void {
+  stageProgressMap.clear()
+}
+
 export { EVENT_NAME as TASK_PROGRESS_EVENT }
